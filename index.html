@@ -24,9 +24,6 @@
   .search-btn{position:absolute;right:4px;top:50%;transform:translateY(-50%);padding:5px 12px;
     font-size:12px;border:none;border-radius:999px;background:var(--accent);color:#fff;cursor:pointer;}
   .search-btn:hover{opacity:.9;}
-  .add-btn{border:1px solid var(--border);background:var(--card);color:var(--accent);font-size:14px;font-weight:500;
-    border-radius:999px;padding:6px 14px;cursor:pointer;white-space:nowrap;}
-  .add-btn:hover{border-color:var(--accent);}
   .category{margin-bottom:18px;}
   .cat-header{display:flex;align-items:center;gap:8px;margin-bottom:10px;cursor:pointer;user-select:none;}
   .cat-dot{width:7px;height:7px;border-radius:50%;background:var(--accent);}
@@ -76,9 +73,8 @@
     <div class="brand"><div class="logo" id="logo">导</div><span id="title">我的导航</span></div>
     <div class="search-wrap">
       <input id="search" placeholder="搜索网址或回车搜索…" autocomplete="off" />
-      <button class="search-btn" id="searchBtn">百度</button>
+      <button class="search-btn" id="searchBtn">必应</button>
     </div>
-    <button class="add-btn" id="addBtn">+ 添加</button>
   </header>
   <main id="main"></main>
   <div class="hint" id="hint"></div>
@@ -356,7 +352,7 @@
       main.innerHTML = '<div class="empty">没有匹配的网址</div>';
     }
     document.getElementById('hint').textContent = (mode === 'internal' ? '内网模式' : '外网模式')
-      + '：NAS 图标会自动访问' + (mode === 'internal' ? '内网' : '外网') + '地址。点右上角「+ 添加」或右键分类可快速增删网址。';
+      + '：NAS 图标会自动访问' + (mode === 'internal' ? '内网' : '外网') + '地址。右键分类可快速添加网址。';
   }
 
   // ---------- 添加网址弹窗 ----------
@@ -402,7 +398,6 @@
   }
   function closeModal(){ modal.classList.add('hidden'); }
 
-  document.getElementById('addBtn').addEventListener('click', openModal);
   document.getElementById('mCancel').addEventListener('click', closeModal);
   modal.addEventListener('click', function(e){ if(e.target === modal) closeModal(); });
   mNas.addEventListener('change', function(){

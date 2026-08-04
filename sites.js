@@ -20,7 +20,7 @@ window.NAV_CONFIG = {
   logo: "导",
 
   // 默认搜索引擎（对应 searchEngines 里的 name）
-  searchEngine: "百度",
+  searchEngine: "必应",
   searchEngines: [
     { name: "百度",   url: "https://www.baidu.com/s?wd=" },
     { name: "必应",   url: "https://www.bing.com/search?q=" },
@@ -66,6 +66,14 @@ window.NAV_CONFIG = {
           { name: "内网Git",  url: "http://192.168.1.12:3000", icon: "G" },
           { name: "打印机",   url: "http://192.168.1.11",       icon: "P" }
         ]
+      },
+      {
+        name: "搜索",
+        links: [
+          { name: "百度", url: "https://www.baidu.com" },
+          { name: "Bing", url: "https://www.bing.com" },
+          { name: "谷歌", url: "https://www.google.com" }
+        ]
       }
     ]
   },
@@ -103,6 +111,14 @@ window.NAV_CONFIG = {
         links: [
           { name: "Z-Library", url: "https://z-lib.org" },
           { name: "可可影视",  url: "https://www.keke1.app" }
+        ]
+      },
+      {
+        name: "搜索",
+        links: [
+          { name: "百度", url: "https://www.baidu.com" },
+          { name: "Bing", url: "https://www.bing.com" },
+          { name: "谷歌", url: "https://www.google.com" }
         ]
       }
     ]
