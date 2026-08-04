@@ -102,7 +102,7 @@
         <div class="engine-menu" id="engineMenu"></div>
       </div>
     </div>
-    <button class="edit-toggle" id="editToggle">编辑</button>
+    <button type="button" class="edit-toggle" id="editToggle">编辑</button>
   </header>
   <main id="main"></main>
   <div class="hint" id="hint"></div>
@@ -288,13 +288,20 @@
     for (var i=0;i<arr.length;i++){ if(arr[i].id === id) return arr[i]; }
     return null;
   }
+  function openEditModal(item){
+    if (item.isUser) openModal(null, { user: findUserLink(item.uid) });
+    else openModal(item.catName, { cfgId: item.uid, base: { name:item.name, url:item.editUrl||item.url, icon:item.icon, category:item.catName } });
+  }
   function createChip(item){
     var a = document.createElement('a');
     a.href = item.url; a.target = '_blank'; a.rel = 'noopener'; a.className = 'chip';
     a.title = (item.name || item.url) + ' — ' + item.url;
-    // 编辑模式下点卡片本身不跳转，避免误触（编辑/删除按钮已自行拦截）
+    // 编辑模式下点卡片任意位置都直接打开「修改」，不再跳转网站
     a.addEventListener('click', function(e){
-      if(document.body.classList.contains('editing')) e.preventDefault();
+      if(document.body.classList.contains('editing')){
+        e.preventDefault();
+        openEditModal(item);
+      }
     });
     var initial = (item.name || '?').charAt(0);
     var txtIcon = document.createElement('span'); txtIcon.className = 'txt-icon'; txtIcon.textContent = initial;
@@ -324,8 +331,7 @@
     edit.title = '修改';
     edit.addEventListener('click', function(e){
       e.preventDefault(); e.stopPropagation();
-      if (item.isUser) openModal(null, { user: findUserLink(item.uid) });
-      else openModal(item.catName, { cfgId: item.uid, base: { name:item.name, url:item.editUrl||item.url, icon:item.icon, category:item.catName } });
+      openEditModal(item);
     });
     a.appendChild(edit);
     var del = document.createElement('span'); del.className = 'chip-del'; del.textContent = '×';
