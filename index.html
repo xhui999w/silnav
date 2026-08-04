@@ -107,6 +107,10 @@
       <label>图标（可选：粘贴图片网址，或选择本地图片）</label>
       <input type="text" id="mIcon" placeholder="https://… 或留空自动抓取" autocomplete="off" />
       <input type="file" id="mIconFile" accept="image/*" style="margin-top:6px;font-size:12px;max-width:100%;" />
+      <div style="margin-top:8px;display:flex;align-items:center;gap:8px;">
+        <button type="button" id="mFetchIcon" class="btn-ghost" style="font-size:12px;padding:5px 12px;">一键获取图标</button>
+        <img id="mIconPreview" alt="" style="display:none;width:20px;height:20px;border-radius:3px;object-fit:contain;border:1px solid var(--border);" />
+      </div>
     </div>
     <div class="err" id="mErr"></div>
     <div class="modal-actions">
@@ -465,6 +469,7 @@
       mCatSelect.value = '我的收藏';
       mCatNewWrap.style.display='none'; mCatNew.value='';
     }
+    updateIconPreview();
     modal.classList.remove('hidden'); mName.focus();
   }
   function closeModal(){ modal.classList.add('hidden'); }
@@ -481,8 +486,38 @@
     var f = mIconFile.files && mIconFile.files[0];
     if(!f) return;
     var r = new FileReader();
-    r.onload = function(){ mIcon.value = r.result; };
+    r.onload = function(){ mIcon.value = r.result; updateIconPreview(); };
     r.readAsDataURL(f);
+  });
+  mIcon.addEventListener('input', updateIconPreview);
+  function updateIconPreview(){
+    var pv = document.getElementById('mIconPreview');
+    if(mIcon.value){ pv.src = mIcon.value; pv.style.display = 'inline-block'; }
+    else { pv.style.display = 'none'; }
+  }
+  // 一键获取图标：按多源顺序抓取 favicon 并填入图标框
+  document.getElementById('mFetchIcon').addEventListener('click', function(){
+    var raw = mUrl.value.trim();
+    if(!raw){ mErr.textContent = '请先填写网址'; return; }
+    if(!/^https?:\/\//i.test(raw)) raw = 'https://' + raw;
+    var host;
+    try { host = new URL(raw).hostname; } catch(e){ mErr.textContent = '网址无效'; return; }
+    if(isIpOrLocal(host)){ mErr.textContent = '内网/本地地址无法自动获取图标'; return; }
+    mErr.textContent = '';
+    var sources = [
+      'https://api.iowen.cn/favicon/' + host + '.png',
+      'https://favicon.im/' + encodeURIComponent(host),
+      'https://icons.duckduckgo.com/ip3/' + host + '.ico',
+      'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(host) + '&sz=32'
+    ];
+    var i = 0;
+    (function tryNext(){
+      if(i >= sources.length){ mErr.textContent = '未能自动获取图标，可手动粘贴图片网址'; return; }
+      var img = new Image();
+      img.onload = function(){ mIcon.value = sources[i]; updateIconPreview(); };
+      img.onerror = function(){ i++; tryNext(); };
+      img.src = sources[i];
+    })();
   });
 
   document.getElementById('mSave').addEventListener('click', function(){
