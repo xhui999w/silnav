@@ -17,13 +17,16 @@
   .brand{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:500;}
   .logo{width:30px;height:30px;border-radius:8px;background:var(--accent-bg);color:var(--accent);
     display:flex;align-items:center;justify-content:center;font-weight:500;font-size:14px;}
-  .search-wrap{flex:1;min-width:260px;max-width:520px;position:relative;display:flex;align-items:center;}
+  .search-wrap{flex:1;min-width:200px;max-width:520px;position:relative;display:flex;align-items:center;}
   .search-wrap input{width:100%;padding:9px 12px;padding-right:74px;font-size:14px;border:1px solid var(--border);
     border-radius:999px;background:var(--card);outline:none;color:var(--text);}
   .search-wrap input:focus{border-color:var(--accent);}
   .search-btn{position:absolute;right:4px;top:50%;transform:translateY(-50%);padding:5px 12px;
     font-size:12px;border:none;border-radius:999px;background:var(--accent);color:#fff;cursor:pointer;}
   .search-btn:hover{opacity:.9;}
+  .add-btn{border:1px solid var(--border);background:var(--card);color:var(--accent);font-size:14px;font-weight:500;
+    border-radius:999px;padding:6px 14px;cursor:pointer;white-space:nowrap;}
+  .add-btn:hover{border-color:var(--accent);}
   .category{margin-bottom:18px;}
   .cat-header{display:flex;align-items:center;gap:8px;margin-bottom:10px;cursor:pointer;user-select:none;}
   .cat-dot{width:7px;height:7px;border-radius:50%;background:var(--accent);}
@@ -40,8 +43,26 @@
   .chip img{width:16px;height:16px;border-radius:3px;object-fit:contain;}
   .txt-icon{width:16px;height:16px;display:flex;align-items:center;justify-content:center;font-size:11px;
     font-weight:500;color:var(--accent);background:var(--accent-bg);border-radius:3px;}
+  .chip-del{margin-left:2px;color:var(--muted);font-size:15px;line-height:1;cursor:pointer;padding:0 1px;}
+  .chip-del:hover{color:#ef4444;}
   .empty{color:var(--muted);font-size:13px;text-align:center;padding:30px 0;}
   .hint{text-align:center;color:var(--muted);font-size:12px;margin-top:30px;}
+  /* 弹窗 */
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:50;}
+  .modal.hidden{display:none;}
+  .modal-box{background:var(--card);width:340px;max-width:92vw;border-radius:12px;padding:20px;box-shadow:0 10px 40px rgba(0,0,0,.18);}
+  .modal-title{font-size:16px;font-weight:500;margin-bottom:14px;}
+  .modal-box label{display:block;font-size:12px;color:var(--muted);margin:10px 0 4px;}
+  .modal-box input[type=text]{width:100%;padding:8px 10px;font-size:14px;border:1px solid var(--border);
+    border-radius:8px;outline:none;color:var(--text);}
+  .modal-box input[type=text]:focus{border-color:var(--accent);}
+  .chk{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text);margin-top:12px;cursor:pointer;}
+  .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px;}
+  .btn-ghost{border:1px solid var(--border);background:var(--card);color:var(--text);padding:7px 16px;
+    border-radius:8px;cursor:pointer;font-size:13px;}
+  .btn-primary{border:none;background:var(--accent);color:#fff;padding:7px 16px;border-radius:8px;cursor:pointer;font-size:13px;}
+  .btn-primary:hover{opacity:.9;}
+  .err{color:#ef4444;font-size:12px;margin-top:8px;min-height:14px;}
   @media (max-width:640px){
     header{justify-content:center;}
     .search-wrap{order:3;width:100%;max-width:none;}
@@ -56,10 +77,37 @@
       <input id="search" placeholder="搜索网址或回车搜索…" autocomplete="off" />
       <button class="search-btn" id="searchBtn">百度</button>
     </div>
+    <button class="add-btn" id="addBtn">+ 添加</button>
   </header>
   <main id="main"></main>
   <div class="hint" id="hint"></div>
 </div>
+
+<!-- 添加网址弹窗 -->
+<div class="modal hidden" id="modal">
+  <div class="modal-box">
+    <div class="modal-title">添加网址</div>
+    <label>名称</label>
+    <input type="text" id="mName" placeholder="例如：B站" autocomplete="off" />
+    <label class="chk"><input type="checkbox" id="mNas" /> 这是 NAS 设备（填内网 + 外网地址）</label>
+    <div id="mNormal">
+      <label>网址</label>
+      <input type="text" id="mUrl" placeholder="https://www.bilibili.com" autocomplete="off" />
+    </div>
+    <div id="mNasFields" style="display:none;">
+      <label>内网地址</label>
+      <input type="text" id="mInt" placeholder="http://192.168.1.10:5000" autocomplete="off" />
+      <label>外网地址（可选）</label>
+      <input type="text" id="mExt" placeholder="https://nas.example.com" autocomplete="off" />
+    </div>
+    <div class="err" id="mErr"></div>
+    <div class="modal-actions">
+      <button class="btn-ghost" id="mCancel">取消</button>
+      <button class="btn-primary" id="mSave">保存</button>
+    </div>
+  </div>
+</div>
+
 <script src="sites.js"></script>
 <script>
 (function(){
@@ -99,7 +147,7 @@
     if(isPrivateIp(h)) return 'internal';
     return 'external';
   }
-  var mode = detect();  // 'internal' | 'external'
+  var mode = detect();
 
   function faviconUrl(url){
     try {
@@ -109,14 +157,21 @@
   }
   function collapsedKey(catName){ return 'nav_collapsed_' + mode + '_' + catName; }
 
-  // NAS 设备按当前环境选地址：内网打开→内网地址，外网打开→外网地址
+  // NAS 设备按当前环境选地址
   function nasDisplayLink(link){
     var url = (mode === 'internal' && link.internal) ? link.internal
             : (link.external || link.internal);
     return { name: link.name, url: url, icon: link.icon };
   }
 
-  function createChip(link){
+  // ---------- 用户自行添加的链接（localStorage）----------
+  function loadUserLinks(){
+    try { return JSON.parse(localStorage.getItem('nav_user_links') || '[]'); }
+    catch(e){ return []; }
+  }
+  function saveUserLinks(arr){ localStorage.setItem('nav_user_links', JSON.stringify(arr)); }
+
+  function createChip(link, uid){
     var a = document.createElement('a');
     a.href = link.url; a.target = '_blank'; a.rel = 'noopener'; a.className = 'chip';
     a.title = (link.name || link.url) + ' — ' + link.url;
@@ -142,6 +197,17 @@
     }
     var span = document.createElement('span'); span.textContent = link.name || link.url;
     a.appendChild(span);
+
+    if (uid) {
+      var del = document.createElement('span'); del.className = 'chip-del'; del.textContent = '×';
+      del.title = '删除';
+      del.addEventListener('click', function(e){
+        e.preventDefault(); e.stopPropagation();
+        saveUserLinks(loadUserLinks().filter(function(x){ return x.id !== uid; }));
+        render();
+      });
+      a.appendChild(del);
+    }
     return a;
   }
 
@@ -150,11 +216,18 @@
     var main = document.getElementById('main');
     main.innerHTML = '';
 
-    // 组装分类：顶部 NAS（始终显示），其余取当前环境对应的分类
     var cats = [];
-    if (cfg.nas && cfg.nas.length) cats.push({ name:"NAS", nas:true, links: cfg.nas });
+    if (cfg.nas && cfg.nas.length) cats.push({ name:"NAS", nas:true, links: cfg.nas.slice() });
     var scope = (mode === 'internal') ? cfg.internal : cfg.external;
     (scope && scope.categories || []).forEach(function(c){ cats.push(c); });
+
+    // 合并用户添加的链接
+    var uls = loadUserLinks();
+    var nasUser = uls.filter(function(l){ return l.nas; });
+    var favUser = uls.filter(function(l){ return !l.nas; });
+    var nasCat = cats[0] && cats[0].nas ? cats[0] : null;
+    if (nasUser.length && nasCat) nasCat.links = nasCat.links.concat(nasUser);
+    if (favUser.length) cats.push({ name:"我的收藏", user:true, links: favUser });
 
     var total = 0;
     cats.forEach(function(cat){
@@ -176,7 +249,11 @@
 
       var chips = document.createElement('div'); chips.className = 'chips';
       links.forEach(function(link){
-        chips.appendChild(cat.nas ? createChip(nasDisplayLink(link)) : createChip(link));
+        if (cat.nas) {
+          chips.appendChild(createChip(nasDisplayLink(link), link.id));
+        } else {
+          chips.appendChild(createChip(link, link.id));
+        }
       });
       total += links.length;
 
@@ -197,8 +274,48 @@
       main.innerHTML = '<div class="empty">没有匹配的网址</div>';
     }
     document.getElementById('hint').textContent = (mode === 'internal' ? '内网模式' : '外网模式')
-      + '：NAS 图标会自动访问' + (mode === 'internal' ? '内网' : '外网') + '地址。';
+      + '：NAS 图标会自动访问' + (mode === 'internal' ? '内网' : '外网') + '地址。点右上角「+ 添加」可自行增删网址。';
   }
+
+  // ---------- 添加网址弹窗 ----------
+  var modal = document.getElementById('modal');
+  var mName = document.getElementById('mName'), mUrl = document.getElementById('mUrl');
+  var mNas = document.getElementById('mNas'), mInt = document.getElementById('mInt'), mExt = document.getElementById('mExt');
+  var mNormal = document.getElementById('mNormal'), mNasFields = document.getElementById('mNasFields');
+  var mErr = document.getElementById('mErr');
+
+  function openModal(){
+    mName.value=''; mUrl.value=''; mInt.value=''; mExt.value=''; mErr.textContent='';
+    mNas.checked=false; mNormal.style.display='block'; mNasFields.style.display='none';
+    modal.classList.remove('hidden'); mName.focus();
+  }
+  function closeModal(){ modal.classList.add('hidden'); }
+
+  document.getElementById('addBtn').addEventListener('click', openModal);
+  document.getElementById('mCancel').addEventListener('click', closeModal);
+  modal.addEventListener('click', function(e){ if(e.target === modal) closeModal(); });
+  mNas.addEventListener('change', function(){
+    mNormal.style.display = mNas.checked ? 'none' : 'block';
+    mNasFields.style.display = mNas.checked ? 'block' : 'none';
+  });
+
+  document.getElementById('mSave').addEventListener('click', function(){
+    var name = mName.value.trim();
+    if(!name){ mErr.textContent = '请填写名称'; return; }
+    var arr = loadUserLinks();
+    if(mNas.checked){
+      var intAddr = mInt.value.trim();
+      if(!intAddr){ mErr.textContent = '请填写内网地址'; return; }
+      arr.push({ id: Date.now(), name: name, nas: true,
+                 internal: intAddr, external: mExt.value.trim() });
+    } else {
+      var url = mUrl.value.trim();
+      if(!url){ mErr.textContent = '请填写网址'; return; }
+      if(!/^https?:\/\//i.test(url)) url = 'https://' + url;
+      arr.push({ id: Date.now(), name: name, url: url });
+    }
+    saveUserLinks(arr); closeModal(); render();
+  });
 
   document.getElementById('search').addEventListener('input', render);
   document.getElementById('search').addEventListener('keydown', function(e){
