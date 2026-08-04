@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>我的导航</title>
+<title>Silnav静航</title>
 <style>
   :root{
     --bg:#f3f4f6; --card:#ffffff; --text:#1f2937; --muted:#6b7280;
@@ -70,7 +70,7 @@
 <body>
 <div class="wrap">
   <header>
-    <div class="brand"><div class="logo" id="logo">导</div><span id="title">我的导航</span></div>
+    <div class="brand"><div class="logo" id="logo">静</div><span id="title">Silnav静航</span></div>
     <div class="search-wrap">
       <input id="search" placeholder="搜索网址或回车搜索…" autocomplete="off" />
       <button class="search-btn" id="searchBtn">必应</button>
@@ -113,8 +113,8 @@
 <script src="sites.js"></script>
 <script>
 (function(){
-  var cfg = window.NAV_CONFIG || {title:"我的导航"};
-  document.getElementById('title').textContent = cfg.title || "我的导航";
+  var cfg = window.NAV_CONFIG || {title:"Silnav静航"};
+  document.getElementById('title').textContent = cfg.title || "Silnav静航";
   if(cfg.logo) document.getElementById('logo').textContent = cfg.logo;
 
   var engines = cfg.searchEngines || [
