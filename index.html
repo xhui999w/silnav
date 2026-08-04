@@ -318,6 +318,7 @@
 
       var section = document.createElement('section'); section.className = 'category';
       var head = document.createElement('div'); head.className = 'cat-header';
+      head.title = '左键折叠/展开 · 右键快速添加网址到此分类';
       var dot = document.createElement('span'); dot.className = 'cat-dot';
       var name = document.createElement('span'); name.className = 'cat-name'; name.textContent = cat.name;
       var count = document.createElement('span'); count.className = 'cat-count'; count.textContent = links.length;
@@ -342,6 +343,10 @@
         arrow.classList.toggle('collapsed');
         localStorage.setItem(collapsedKey(cat.name), now ? '1' : '0');
       });
+      head.addEventListener('contextmenu', function(e){
+        e.preventDefault();
+        openModal(cat.nas ? 'NAS' : cat.name);
+      });
 
       section.appendChild(head); section.appendChild(chips);
       main.appendChild(section);
@@ -351,7 +356,7 @@
       main.innerHTML = '<div class="empty">没有匹配的网址</div>';
     }
     document.getElementById('hint').textContent = (mode === 'internal' ? '内网模式' : '外网模式')
-      + '：NAS 图标会自动访问' + (mode === 'internal' ? '内网' : '外网') + '地址。点右上角「+ 添加」可自行增删网址。';
+      + '：NAS 图标会自动访问' + (mode === 'internal' ? '内网' : '外网') + '地址。点右上角「+ 添加」或右键分类可快速增删网址。';
   }
 
   // ---------- 添加网址弹窗 ----------
@@ -362,21 +367,37 @@
   var mNormal = document.getElementById('mNormal'), mNasFields = document.getElementById('mNasFields');
   var mErr = document.getElementById('mErr');
 
-  function openModal(){
+  function openModal(presetCat){
     mName.value=''; mUrl.value=''; mInt.value=''; mExt.value=''; mErr.textContent='';
-    mNas.checked=false; mNormal.style.display='block'; mNasFields.style.display='none';
-    // 填充分类下拉（当前模式 + 另一模式已有的分类 + 我的收藏 + 新建）
+    // 填充分类下拉（当前模式 + 另一模式已有的分类 + 用户自建分类 + 我的收藏 + 新建）
     var names = [];
     var scope = (mode === 'internal') ? cfg.internal : cfg.external;
     var other = (mode === 'internal') ? cfg.external : cfg.internal;
     if(scope && scope.categories) scope.categories.forEach(function(c){ names.push(c.name); });
     if(other && other.categories) other.categories.forEach(function(c){ if(names.indexOf(c.name)<0) names.push(c.name); });
+    loadUserLinks().forEach(function(l){ var c=l.category||'我的收藏'; if(names.indexOf(c)<0) names.push(c); });
     if(names.indexOf('我的收藏')<0) names.push('我的收藏');
     mCatSelect.innerHTML = '';
     names.forEach(function(n){ var o=document.createElement('option'); o.value=n; o.textContent=n; mCatSelect.appendChild(o); });
     var on = document.createElement('option'); on.value='__new__'; on.textContent='＋ 新建分类…'; mCatSelect.appendChild(on);
-    mCatSelect.value = '我的收藏';
-    mCatNewWrap.style.display='none'; mCatNew.value='';
+
+    if(presetCat === 'NAS'){
+      mNas.checked = true; mNormal.style.display='none'; mNasFields.style.display='block';
+      mCatNewWrap.style.display='none'; mCatNew.value='';
+    } else {
+      mNas.checked = false; mNormal.style.display='block'; mNasFields.style.display='none';
+      if(presetCat && presetCat !== '我的收藏'){
+        // 确保预设分类在下拉里存在
+        var exists = false;
+        for(var i=0;i<mCatSelect.options.length;i++){ if(mCatSelect.options[i].value===presetCat){ exists=true; break; } }
+        if(!exists){ var o2=document.createElement('option'); o2.value=presetCat; o2.textContent=presetCat; mCatSelect.insertBefore(o2, mCatSelect.lastChild); }
+        mCatSelect.value = presetCat;
+        mCatNewWrap.style.display='none'; mCatNew.value='';
+      } else {
+        mCatSelect.value = '我的收藏';
+        mCatNewWrap.style.display='none'; mCatNew.value='';
+      }
+    }
     modal.classList.remove('hidden'); mName.focus();
   }
   function closeModal(){ modal.classList.add('hidden'); }
