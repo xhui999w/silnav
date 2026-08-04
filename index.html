@@ -53,8 +53,9 @@
   .modal-box{background:var(--card);width:340px;max-width:92vw;border-radius:12px;padding:20px;box-shadow:0 10px 40px rgba(0,0,0,.18);}
   .modal-title{font-size:16px;font-weight:500;margin-bottom:14px;}
   .modal-box label{display:block;font-size:12px;color:var(--muted);margin:10px 0 4px;}
-  .modal-box input[type=text]{width:100%;padding:8px 10px;font-size:14px;border:1px solid var(--border);
-    border-radius:8px;outline:none;color:var(--text);}
+  .modal-box input[type=text], .modal-box select{width:100%;padding:8px 10px;font-size:14px;border:1px solid var(--border);
+    border-radius:8px;outline:none;color:var(--text);background:var(--card);}
+  .modal-box select:focus{border-color:var(--accent);}
   .modal-box input[type=text]:focus{border-color:var(--accent);}
   .chk{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text);margin-top:12px;cursor:pointer;}
   .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px;}
@@ -93,9 +94,11 @@
     <div id="mNormal">
       <label>网址</label>
       <input type="text" id="mUrl" placeholder="https://www.bilibili.com" autocomplete="off" />
-      <label>分类（可选，留空归到「我的收藏」）</label>
-      <input type="text" id="mCat" list="catList" placeholder="我的收藏" autocomplete="off" />
-      <datalist id="catList"></datalist>
+      <label>分类（自动识别，可改；留空归「我的收藏」）</label>
+      <select id="mCatSelect"></select>
+      <div id="mCatNewWrap" style="display:none;margin-top:6px;">
+        <input type="text" id="mCatNew" placeholder="输入新分类名" autocomplete="off" />
+      </div>
     </div>
     <div id="mNasFields" style="display:none;">
       <label>内网地址</label>
@@ -173,6 +176,51 @@
     catch(e){ return []; }
   }
   function saveUserLinks(arr){ localStorage.setItem('nav_user_links', JSON.stringify(arr)); }
+
+  // ---------- 自动识别分类：根据网址域名匹配已有链接 ----------
+  function regDomain(host){
+    if(!host) return '';
+    var parts = host.toLowerCase().split('.');
+    if(parts.length <= 2) return parts.join('.');
+    var twoLevel = ['com.cn','net.cn','org.cn','gov.cn','edu.cn','co.uk','com.hk','com.tw'];
+    if(twoLevel.indexOf(parts.slice(-2).join('.')) >= 0) return parts.slice(-3).join('.');
+    return parts.slice(-2).join('.');
+  }
+  function buildDomainMap(){
+    var map = {};
+    function addScope(s){
+      if(s && s.categories) s.categories.forEach(function(c){
+        (c.links||[]).forEach(function(l){
+          try { var d = regDomain(new URL(l.url||l.internal||'').hostname); if(d) (map[d]=map[d]||[]).push(c.name); } catch(e){}
+        });
+      });
+    }
+    addScope(cfg.internal); addScope(cfg.external);
+    loadUserLinks().forEach(function(l){
+      if(l.url){ try{ var d=regDomain(new URL(l.url).hostname); if(d) (map[d]=map[d]||[]).push(l.category||'我的收藏'); }catch(e){} }
+    });
+    return map;
+  }
+  function autoDetectCat(){
+    var raw = mUrl.value.trim();
+    if(!raw) return;
+    if(!/^https?:\/\//i.test(raw)) raw = 'https://' + raw;
+    try {
+      var d = regDomain(new URL(raw).hostname);
+      var map = buildDomainMap();
+      var cand = (map[d] || []).slice();
+      if(!cand.length){
+        Object.keys(map).forEach(function(k){ if(d.indexOf(k) >= 0 && d !== k) cand = cand.concat(map[k]); });
+      }
+      var pick = null;
+      cand.forEach(function(c){ if(!pick && c !== '我的收藏') pick = c; });
+      if(!pick && cand.length) pick = cand[0];
+      if(pick){
+        var opts = mCatSelect.options;
+        for(var i=0;i<opts.length;i++){ if(opts[i].value === pick){ mCatSelect.value = pick; return; } }
+      }
+    } catch(e){}
+  }
 
   function createChip(link, uid){
     var a = document.createElement('a');
@@ -295,24 +343,27 @@
 
   // ---------- 添加网址弹窗 ----------
   var modal = document.getElementById('modal');
-  var mName = document.getElementById('mName'), mUrl = document.getElementById('mUrl'), mCat = document.getElementById('mCat');
+  var mName = document.getElementById('mName'), mUrl = document.getElementById('mUrl');
+  var mCatSelect = document.getElementById('mCatSelect'), mCatNew = document.getElementById('mCatNew'), mCatNewWrap = document.getElementById('mCatNewWrap');
   var mNas = document.getElementById('mNas'), mInt = document.getElementById('mInt'), mExt = document.getElementById('mExt');
   var mNormal = document.getElementById('mNormal'), mNasFields = document.getElementById('mNasFields');
-  var mErr = document.getElementById('mErr'), catList = document.getElementById('catList');
+  var mErr = document.getElementById('mErr');
 
   function openModal(){
     mName.value=''; mUrl.value=''; mInt.value=''; mExt.value=''; mErr.textContent='';
     mNas.checked=false; mNormal.style.display='block'; mNasFields.style.display='none';
-    // 填充分类候选（当前模式 + 另一模式已有的分类 + 我的收藏）
-    catList.innerHTML = '';
+    // 填充分类下拉（当前模式 + 另一模式已有的分类 + 我的收藏 + 新建）
     var names = [];
     var scope = (mode === 'internal') ? cfg.internal : cfg.external;
     var other = (mode === 'internal') ? cfg.external : cfg.internal;
     if(scope && scope.categories) scope.categories.forEach(function(c){ names.push(c.name); });
     if(other && other.categories) other.categories.forEach(function(c){ if(names.indexOf(c.name)<0) names.push(c.name); });
     if(names.indexOf('我的收藏')<0) names.push('我的收藏');
-    names.forEach(function(n){ var o=document.createElement('option'); o.value=n; catList.appendChild(o); });
-    mCat.value = '我的收藏';
+    mCatSelect.innerHTML = '';
+    names.forEach(function(n){ var o=document.createElement('option'); o.value=n; o.textContent=n; mCatSelect.appendChild(o); });
+    var on = document.createElement('option'); on.value='__new__'; on.textContent='＋ 新建分类…'; mCatSelect.appendChild(on);
+    mCatSelect.value = '我的收藏';
+    mCatNewWrap.style.display='none'; mCatNew.value='';
     modal.classList.remove('hidden'); mName.focus();
   }
   function closeModal(){ modal.classList.add('hidden'); }
@@ -323,6 +374,12 @@
   mNas.addEventListener('change', function(){
     mNormal.style.display = mNas.checked ? 'none' : 'block';
     mNasFields.style.display = mNas.checked ? 'block' : 'none';
+  });
+  mUrl.addEventListener('input', autoDetectCat);
+  mCatSelect.addEventListener('change', function(){
+    var isNew = mCatSelect.value === '__new__';
+    mCatNewWrap.style.display = isNew ? 'block' : 'none';
+    if(isNew) mCatNew.focus();
   });
 
   document.getElementById('mSave').addEventListener('click', function(){
@@ -338,7 +395,8 @@
       var url = mUrl.value.trim();
       if(!url){ mErr.textContent = '请填写网址'; return; }
       if(!/^https?:\/\//i.test(url)) url = 'https://' + url;
-      var cat = mCat.value.trim() || '我的收藏';
+      var cat = (mCatSelect.value === '__new__') ? mCatNew.value.trim() : mCatSelect.value;
+      if(!cat) cat = '我的收藏';
       arr.push({ id: Date.now(), name: name, url: url, category: cat });
     }
     saveUserLinks(arr); closeModal(); render();
