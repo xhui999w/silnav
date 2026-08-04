@@ -176,19 +176,18 @@
   }
   function collapsedKey(catName){ return 'nav_collapsed_' + mode + '_' + catName; }
 
-  // NAS 设备按当前环境选地址
-  function nasDisplayLink(link){
-    var url = (mode === 'internal' && link.internal) ? link.internal
-            : (link.external || link.internal);
-    return { name: link.name, url: url, icon: link.icon };
-  }
-
   // ---------- 用户自行添加的链接（localStorage）----------
   function loadUserLinks(){
     try { return JSON.parse(localStorage.getItem('nav_user_links') || '[]'); }
     catch(e){ return []; }
   }
   function saveUserLinks(arr){ localStorage.setItem('nav_user_links', JSON.stringify(arr)); }
+
+  // ---------- 对「配置内网站」的本地覆盖（不修改 sites.js，可恢复）----------
+  function loadOverrides(){ try { return JSON.parse(localStorage.getItem('nav_overrides') || '{}'); } catch(e){ return {}; } }
+  function saveOverrides(o){ localStorage.setItem('nav_overrides', JSON.stringify(o)); }
+  function loadHidden(){ try { return JSON.parse(localStorage.getItem('nav_hidden') || '[]'); } catch(e){ return []; } }
+  function saveHidden(a){ localStorage.setItem('nav_hidden', JSON.stringify(a)); }
 
   // ---------- 自动识别分类：根据网址域名匹配已有链接 ----------
   function regDomain(host){
@@ -243,23 +242,23 @@
     for (var i=0;i<arr.length;i++){ if(arr[i].id === id) return arr[i]; }
     return null;
   }
-  function createChip(link, uid){
+  function createChip(item){
     var a = document.createElement('a');
-    a.href = link.url; a.target = '_blank'; a.rel = 'noopener'; a.className = 'chip';
-    a.title = (link.name || link.url) + ' — ' + link.url;
-    var initial = (link.name || '?').charAt(0);
+    a.href = item.url; a.target = '_blank'; a.rel = 'noopener'; a.className = 'chip';
+    a.title = (item.name || item.url) + ' — ' + item.url;
+    var initial = (item.name || '?').charAt(0);
     var txtIcon = document.createElement('span'); txtIcon.className = 'txt-icon'; txtIcon.textContent = initial;
 
-    if (isImgUrl(link.icon)) {
+    if (isImgUrl(item.icon)) {
       var cimg = document.createElement('img'); cimg.alt = '';
       cimg.onerror = function(){ cimg.style.display='none'; txtIcon.style.display='flex'; };
-      cimg.src = link.icon;
+      cimg.src = item.icon;
       txtIcon.style.display = 'none';
       a.appendChild(cimg); a.appendChild(txtIcon);
     } else if (cfg.useFavicon !== false) {
       var img = document.createElement('img'); img.alt = '';
       txtIcon.style.display = 'none';
-      tryFavicons(link.url, img, function(){
+      tryFavicons(item.url, img, function(){
         img.style.display = 'none';
         txtIcon.style.display = 'flex';
       });
@@ -268,26 +267,26 @@
     } else {
       a.appendChild(txtIcon);
     }
-    var span = document.createElement('span'); span.textContent = link.name || link.url;
+    var span = document.createElement('span'); span.textContent = item.name || item.url;
     a.appendChild(span);
 
-    if (uid) {
-      var edit = document.createElement('span'); edit.className = 'chip-edit'; edit.textContent = '✎';
-      edit.title = '修改';
-      edit.addEventListener('click', function(e){
-        e.preventDefault(); e.stopPropagation();
-        openModal(null, findUserLink(uid));
-      });
-      a.appendChild(edit);
-      var del = document.createElement('span'); del.className = 'chip-del'; del.textContent = '×';
-      del.title = '删除';
-      del.addEventListener('click', function(e){
-        e.preventDefault(); e.stopPropagation();
-        saveUserLinks(loadUserLinks().filter(function(x){ return x.id !== uid; }));
-        render();
-      });
-      a.appendChild(del);
-    }
+    var edit = document.createElement('span'); edit.className = 'chip-edit'; edit.textContent = '✎';
+    edit.title = '修改';
+    edit.addEventListener('click', function(e){
+      e.preventDefault(); e.stopPropagation();
+      if (item.isUser) openModal(null, { user: findUserLink(item.uid) });
+      else openModal(item.catName, { cfgId: item.uid, base: { name:item.name, url:item.editUrl||item.url, icon:item.icon, category:item.catName } });
+    });
+    a.appendChild(edit);
+    var del = document.createElement('span'); del.className = 'chip-del'; del.textContent = '×';
+    del.title = '删除';
+    del.addEventListener('click', function(e){
+      e.preventDefault(); e.stopPropagation();
+      if (item.isUser) saveUserLinks(loadUserLinks().filter(function(x){ return x.id !== item.uid; }));
+      else { var h = loadHidden(); if(h.indexOf(item.uid) < 0){ h.push(item.uid); saveHidden(h); } }
+      render();
+    });
+    a.appendChild(del);
     return a;
   }
 
@@ -296,74 +295,99 @@
     var main = document.getElementById('main');
     main.innerHTML = '';
 
-    var cats = [];
-    if (cfg.nas && cfg.nas.length) cats.push({ name:"NAS", nas:true, links: cfg.nas.slice() });
-    var scope = (mode === 'internal') ? cfg.internal : cfg.external;
-    (scope && scope.categories || []).forEach(function(c){ cats.push(c); });
-
-    // 合并用户添加的链接
+    var overrides = loadOverrides();
+    var hidden = loadHidden();
     var uls = loadUserLinks();
-    var nasUser = uls.filter(function(l){ return l.nas; });
-    var favUser = uls.filter(function(l){ return !l.nas; });
-    var nasCat = cats[0] && cats[0].nas ? cats[0] : null;
-    if (nasUser.length && nasCat) nasCat.links = nasCat.links.concat(nasUser);
-    if (favUser.length) {
-      // 按所选分类分组
-      var groups = {};
-      favUser.forEach(function(l){
-        var k = l.category || '我的收藏';
-        (groups[k] = groups[k] || []).push(l);
-      });
-      Object.keys(groups).forEach(function(k){
-        var found = null;
-        for (var i=0;i<cats.length;i++){ if(cats[i].name===k){ found=cats[i]; break; } }
-        if (found){ found.links = (found.links||[]).concat(groups[k]); }
-        else { cats.push({ name:k, user:true, links: groups[k] }); }
+    var items = [];
+
+    // NAS（配置内）
+    if (cfg.nas && cfg.nas.length){
+      cfg.nas.forEach(function(link, i){
+        var id = 'nas:' + i;
+        if (hidden.indexOf(id) >= 0) return;
+        var ov = overrides[id];
+        var ext = (ov && ov.external != null) ? ov.external : link.external;
+        var disp = (mode === 'internal' && link.internal) ? link.internal : (ext || link.internal);
+        items.push({ uid:id, isUser:false, isNas:true,
+          name:(ov && ov.name != null ? ov.name : link.name),
+          url:disp, editUrl:ext,
+          icon:(ov && ov.icon != null ? ov.icon : link.icon),
+          catName:'NAS' });
       });
     }
 
-    var total = 0;
-    cats.forEach(function(cat){
-      var allLinks = cat.links || [];
-      var links = allLinks.filter(function(it){
-        if(!q) return true;
-        var hay = ((it.name||'') + ' ' + (it.url||'') + ' ' + (it.internal||'') + ' ' + (it.external||'')).toLowerCase();
-        return hay.indexOf(q) >= 0;
+    // 配置内分类网址
+    var scope = (mode === 'internal') ? cfg.internal : cfg.external;
+    (scope && scope.categories || []).forEach(function(c){
+      (c.links||[]).forEach(function(link, i){
+        var id = 'cfg:' + c.name + ':' + i;
+        if (hidden.indexOf(id) >= 0) return;
+        var ov = overrides[id];
+        var name = (ov && ov.name != null) ? ov.name : link.name;
+        var url = (ov && ov.url != null) ? ov.url : link.url;
+        var icon = (ov && ov.icon != null) ? ov.icon : link.icon;
+        var catName = (ov && ov.category != null) ? ov.category : c.name;
+        items.push({ uid:id, isUser:false, isNas:false, name:name, url:url, icon:icon, catName:catName });
       });
-      if(!links.length) return;
+    });
+
+    // 用户自行添加的链接（localStorage）
+    uls.forEach(function(l){
+      var id = l.id;
+      if (hidden.indexOf('user:' + id) >= 0) return;
+      if (l.nas){
+        var disp = (mode === 'internal' && l.internal) ? l.internal : (l.external || l.internal);
+        items.push({ uid:id, isUser:true, isNas:true, name:l.name, url:disp, icon:l.icon, catName:'NAS' });
+      } else {
+        items.push({ uid:id, isUser:true, isNas:false, name:l.name, url:l.url, icon:l.icon, catName:l.category||'我的收藏' });
+      }
+    });
+
+    // 分类顺序：先配置顺序，再用户自建
+    var orderedCats = [], catOrder = {};
+    function ensureCat(n){ if(!(n in catOrder)){ catOrder[n]=orderedCats.length; orderedCats.push(n); } }
+    if (cfg.nas && cfg.nas.length) ensureCat('NAS');
+    (scope && scope.categories || []).forEach(function(c){ ensureCat(c.name); });
+    uls.forEach(function(l){ ensureCat(l.category || '我的收藏'); });
+
+    var groups = {};
+    items.forEach(function(it){
+      if (!q || ((it.name||'') + ' ' + (it.url||'')).toLowerCase().indexOf(q) >= 0){
+        (groups[it.catName] = groups[it.catName] || []).push(it);
+      }
+    });
+
+    var total = 0;
+    orderedCats.forEach(function(catName){
+      var links = groups[catName];
+      if(!links || !links.length) return;
 
       var section = document.createElement('section'); section.className = 'category';
       var head = document.createElement('div'); head.className = 'cat-header';
       head.title = '左键折叠/展开 · 点击 + 添加网址到此分类';
       var dot = document.createElement('span'); dot.className = 'cat-dot';
-      var name = document.createElement('span'); name.className = 'cat-name'; name.textContent = cat.name;
+      var name = document.createElement('span'); name.className = 'cat-name'; name.textContent = catName;
       var count = document.createElement('span'); count.className = 'cat-count'; count.textContent = links.length;
       var addBtn = document.createElement('span'); addBtn.className = 'cat-add'; addBtn.textContent = '+';
-      addBtn.title = '添加网址到「' + cat.name + '」';
+      addBtn.title = '添加网址到「' + catName + '」';
       var arrow = document.createElement('span'); arrow.className = 'cat-arrow'; arrow.textContent = '▼';
       head.appendChild(dot); head.appendChild(name); head.appendChild(count); head.appendChild(addBtn); head.appendChild(arrow);
 
       var chips = document.createElement('div'); chips.className = 'chips';
-      links.forEach(function(link){
-        if (cat.nas) {
-          chips.appendChild(createChip(nasDisplayLink(link), link.id));
-        } else {
-          chips.appendChild(createChip(link, link.id));
-        }
-      });
+      links.forEach(function(it){ chips.appendChild(createChip(it)); });
       total += links.length;
 
-      var isCollapsed = localStorage.getItem(collapsedKey(cat.name)) === '1';
+      var isCollapsed = localStorage.getItem(collapsedKey(catName)) === '1';
       if(isCollapsed){ chips.classList.add('collapsed'); arrow.classList.add('collapsed'); }
 
       head.addEventListener('click', function(){
         var now = chips.classList.toggle('collapsed');
         arrow.classList.toggle('collapsed');
-        localStorage.setItem(collapsedKey(cat.name), now ? '1' : '0');
+        localStorage.setItem(collapsedKey(catName), now ? '1' : '0');
       });
       addBtn.addEventListener('click', function(e){
         e.preventDefault(); e.stopPropagation();
-        openModal(cat.name);
+        openModal(catName);
       });
 
       section.appendChild(head); section.appendChild(chips);
@@ -373,7 +397,13 @@
     if(!total){
       main.innerHTML = '<div class="empty">没有匹配的网址</div>';
     }
-    document.getElementById('hint').textContent = '点击分类右侧的 + 可添加网址；点击链接上的 ✎ 可修改、× 可删除；均仅保存在本浏览器。';
+    document.getElementById('hint').innerHTML = '点击分类右侧的 + 可添加网址；点击链接上的 ✎ 可修改、× 可删除（均仅保存在本浏览器）。<span id="resetLocal" style="color:var(--accent);cursor:pointer;margin-left:6px;">恢复默认</span>';
+    var rl = document.getElementById('resetLocal');
+    if(rl) rl.addEventListener('click', function(){
+      if(confirm('确定清除本机对网址的所有修改/删除，恢复 sites.js 默认？')){
+        localStorage.removeItem('nav_overrides'); localStorage.removeItem('nav_hidden'); render();
+      }
+    });
   }
 
   // ---------- 添加网址弹窗 ----------
@@ -383,19 +413,26 @@
   var mNormal = document.getElementById('mNormal');
   var mErr = document.getElementById('mErr');
   var mIcon = document.getElementById('mIcon'), mIconFile = document.getElementById('mIconFile');
-  var editingId = null;
+  var editingUser = null, editingCfgId = null;
 
-  function openModal(presetCat, editLink){
+  function openModal(presetCat, opts){
     mErr.textContent=''; mIcon.value=''; mIconFile.value='';
-    if (editLink) {
-      editingId = editLink.id;
+    editingUser = null; editingCfgId = null;
+    if (opts && opts.user) {
+      editingUser = opts.user;
       document.querySelector('.modal-title').textContent = '修改网址';
-      mName.value = editLink.name || '';
-      mUrl.value = editLink.url || '';
-      mIcon.value = editLink.icon || '';
-      presetCat = editLink.category || presetCat;
+      mName.value = editingUser.name || '';
+      mUrl.value = editingUser.url || '';
+      mIcon.value = editingUser.icon || '';
+      presetCat = editingUser.category || presetCat;
+    } else if (opts && opts.cfgId) {
+      editingCfgId = opts.cfgId;
+      document.querySelector('.modal-title').textContent = '修改网址';
+      mName.value = opts.base.name || '';
+      mUrl.value = opts.base.url || '';
+      mIcon.value = opts.base.icon || '';
+      presetCat = opts.base.category || presetCat;
     } else {
-      editingId = null;
       document.querySelector('.modal-title').textContent = '添加网址';
       mName.value=''; mUrl.value='';
     }
@@ -452,21 +489,43 @@
     var cat = (mCatSelect.value === '__new__') ? mCatNew.value.trim() : mCatSelect.value;
     if(!cat) cat = '我的收藏';
     var icon = mIcon.value.trim();
-    var arr = loadUserLinks();
-    if (editingId != null) {
+    var iconVal = icon ? icon : '';
+
+    // 编辑「配置内网站」：写入本地覆盖，不改动 sites.js
+    if (editingCfgId != null) {
+      var ov = {};
+      if (editingCfgId.indexOf('nas:') === 0){
+        ov.name = name; ov.external = url; if(iconVal) ov.icon = iconVal;
+      } else {
+        ov.name = name; ov.url = url; ov.category = cat; if(iconVal) ov.icon = iconVal;
+      }
+      var overrides = loadOverrides();
+      overrides[editingCfgId] = ov;
+      saveOverrides(overrides);
+      closeModal(); render();
+      return;
+    }
+
+    // 编辑「用户自行添加的链接」
+    if (editingUser != null) {
+      var arr = loadUserLinks();
       var found = false;
       arr = arr.map(function(l){
-        if(l.id === editingId){
+        if(l.id === editingUser.id){
           found = true;
-          return { id: l.id, name: name, url: url, category: cat, icon: icon || undefined, nas: l.nas };
+          return { id: l.id, name: name, url: url, category: cat, icon: iconVal || undefined, nas: l.nas };
         }
         return l;
       });
       if(!found){ mErr.textContent = '未找到该链接'; return; }
-    } else {
-      arr.push({ id: Date.now(), name: name, url: url, category: cat, icon: icon || undefined });
+      saveUserLinks(arr); closeModal(); render();
+      return;
     }
-    saveUserLinks(arr); closeModal(); render();
+
+    // 新增用户链接
+    var uls = loadUserLinks();
+    uls.push({ id: Date.now(), name: name, url: url, category: cat, icon: iconVal || undefined });
+    saveUserLinks(uls); closeModal(); render();
   });
 
   document.getElementById('search').addEventListener('input', render);
