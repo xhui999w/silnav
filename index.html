@@ -47,6 +47,14 @@
   .chip-del:hover{color:#ef4444;}
   .chip-edit{margin-left:2px;color:var(--accent);font-size:13px;line-height:1;cursor:pointer;padding:0 1px;}
   .chip-edit:hover{color:#1d4ed8;}
+  /* 编辑按钮默认隐藏，仅「编辑模式」下显示 */
+  .chip-edit,.chip-del{display:none;}
+  body.editing .chip-edit,body.editing .chip-del{display:inline;}
+  /* 顶部编辑开关 */
+  .edit-toggle{margin-left:8px;border:1px solid var(--border);background:var(--card);color:var(--accent);
+    font-size:13px;padding:7px 14px;border-radius:8px;cursor:pointer;white-space:nowrap;transition:.15s;}
+  .edit-toggle:hover{border-color:var(--accent);}
+  body.editing .edit-toggle{background:var(--accent);color:#fff;border-color:var(--accent);}
   .empty{color:var(--muted);font-size:13px;text-align:center;padding:30px 0;}
   .hint{text-align:center;color:var(--muted);font-size:12px;margin-top:30px;}
   /* 弹窗 */
@@ -79,6 +87,7 @@
     <div class="search-wrap">
       <input id="search" placeholder="搜索网址或回车搜索…" autocomplete="off" />
       <button class="search-btn" id="searchBtn">必应</button>
+      <button class="edit-toggle" id="editToggle">编辑</button>
     </div>
   </header>
   <main id="main"></main>
@@ -250,6 +259,10 @@
     var a = document.createElement('a');
     a.href = item.url; a.target = '_blank'; a.rel = 'noopener'; a.className = 'chip';
     a.title = (item.name || item.url) + ' — ' + item.url;
+    // 编辑模式下点卡片本身不跳转，避免误触（编辑/删除按钮已自行拦截）
+    a.addEventListener('click', function(e){
+      if(document.body.classList.contains('editing')) e.preventDefault();
+    });
     var initial = (item.name || '?').charAt(0);
     var txtIcon = document.createElement('span'); txtIcon.className = 'txt-icon'; txtIcon.textContent = initial;
 
@@ -401,7 +414,7 @@
     if(!total){
       main.innerHTML = '<div class="empty">没有匹配的网址</div>';
     }
-    document.getElementById('hint').innerHTML = '点击分类右侧的 + 可添加网址；点击链接上的 ✎ 可修改、× 可删除（均仅保存在本浏览器）。<span id="resetLocal" style="color:var(--accent);cursor:pointer;margin-left:6px;">恢复默认</span>';
+    document.getElementById('hint').innerHTML = '点击分类右侧的 + 可添加网址；点顶部「编辑」后，链接上会显示 ✎ 修改 / × 删除（均仅保存在本浏览器）。<span id="resetLocal" style="color:var(--accent);cursor:pointer;margin-left:6px;">恢复默认</span>';
     var rl = document.getElementById('resetLocal');
     if(rl) rl.addEventListener('click', function(){
       if(confirm('确定清除本机对网址的所有修改/删除，恢复 sites.js 默认？')){
@@ -575,6 +588,13 @@
     updateEngineBtn();
     var q = document.getElementById('search').value.trim();
     if(q) window.open(engines[engineIndex].url + encodeURIComponent(q), '_blank');
+  });
+
+  // 编辑模式总开关：默认卡片无按钮，点「编辑」才浮现 ✎/×
+  var editToggle = document.getElementById('editToggle');
+  editToggle.addEventListener('click', function(){
+    var on = document.body.classList.toggle('editing');
+    editToggle.textContent = on ? '完成' : '编辑';
   });
 
   render();
