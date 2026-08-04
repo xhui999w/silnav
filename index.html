@@ -155,11 +155,27 @@
   }
   var mode = detect();
 
-  function faviconUrl(url){
-    try {
-      var u = new URL(url);
-      return 'https://favicon.im/' + encodeURIComponent(u.hostname);
-    } catch(e){ return ''; }
+  function isIpOrLocal(host){
+    return host === 'localhost' || /^\d{1,3}(\.\d{1,3}){3}$/.test(host);
+  }
+  // 多源抓取 favicon：依次尝试，失败自动换下一个；均失败回调 onFail
+  function tryFavicons(url, imgEl, onFail){
+    var host;
+    try { host = new URL(url).hostname; } catch(e){ onFail(); return; }
+    if(!host || isIpOrLocal(host)){ onFail(); return; }
+    var sources = [
+      'https://api.iowen.cn/favicon/' + host + '.png',
+      'https://favicon.im/' + encodeURIComponent(host),
+      'https://icons.duckduckgo.com/ip3/' + host + '.ico',
+      'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(host) + '&sz=32'
+    ];
+    var i = 0;
+    function next(){
+      if(i >= sources.length){ onFail(); return; }
+      imgEl.src = sources[i++];
+    }
+    imgEl.onerror = next;
+    next();
   }
   function collapsedKey(catName){ return 'nav_collapsed_' + mode + '_' + catName; }
 
@@ -232,17 +248,14 @@
     if (link.icon) {
       a.appendChild(txtIcon);
     } else if (cfg.useFavicon !== false) {
-      var fav = faviconUrl(link.url);
-      if (fav) {
-        var img = document.createElement('img');
-        img.src = fav; img.alt = '';
-        img.onerror = function(){ img.style.display='none'; txtIcon.style.display='flex'; };
-        txtIcon.style.display = 'none';
-        a.appendChild(img);
-        a.appendChild(txtIcon);
-      } else {
-        a.appendChild(txtIcon);
-      }
+      var img = document.createElement('img'); img.alt = '';
+      txtIcon.style.display = 'none';
+      tryFavicons(link.url, img, function(){
+        img.style.display = 'none';
+        txtIcon.style.display = 'flex';
+      });
+      a.appendChild(img);
+      a.appendChild(txtIcon);
     } else {
       a.appendChild(txtIcon);
     }
