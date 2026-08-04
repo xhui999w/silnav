@@ -6,9 +6,6 @@
 //  1. 页面读取【导航页自身被访问的网址】自动判断内/外网：
 //      命中 internalHosts 或 internalIpPrefixes（如 192.168.*）→ 内网模式
 //      否则 → 外网模式。普通分类只显示当前环境对应的那一组。
-//  2. 顶部「NAS」分类始终显示，每个设备填 internal（内网）+ external（外网），
-//      点击图标按当前环境自动选地址。
-//  3. 自行添加：在任意分类标题上右键 → 快速添加（普通分类单网址，NAS 勾选填双地址）。
 // ============================================================
 
 window.NAV_CONFIG = {
@@ -55,128 +52,6 @@ window.NAV_CONFIG = {
     "172.29.",
     "172.30.",
     "172.31."
-  ],
-  "nas": [
-    {
-      "name": "Openlist",
-      "internal": "http://192.168.1.10:5248",
-      "external": "https://openlist.example.com"
-    },
-    {
-      "name": "openspeedtest",
-      "internal": "http://192.168.1.10:3001",
-      "external": "https://speed.example.com:16888"
-    },
-    {
-      "name": "MoviePilot-V2",
-      "internal": "http://192.168.1.10:3004",
-      "external": "https://mp-v2.example.com"
-    },
-    {
-      "name": "CloudDrive2",
-      "internal": "http://192.168.1.10:19798",
-      "external": "https://cd2.example.com:16888"
-    },
-    {
-      "name": "Lucky",
-      "internal": "http://192.168.1.10:16601",
-      "external": "https://lucky.example.com"
-    },
-    {
-      "name": "Vaultwarden",
-      "internal": "http://192.168.1.10:3512",
-      "external": "https://vau.example.com"
-    },
-    {
-      "name": "qbittorrent",
-      "internal": "http://192.168.1.10:8091",
-      "external": "https://qb.example.com"
-    },
-    {
-      "name": "emby",
-      "internal": "http://192.168.1.10:9096",
-      "external": "https://emby.example.com"
-    },
-    {
-      "name": "飞牛-虚拟机",
-      "internal": "http://192.168.2.10:8000",
-      "external": "https://example.net/xhui999w"
-    },
-    {
-      "name": "v2raya",
-      "internal": "http://192.168.1.10:2017",
-      "external": "https://v2ray.example.com"
-    },
-    {
-      "name": "taosync",
-      "internal": "http://192.168.1.10:8023",
-      "external": "https://taotao.example.com"
-    },
-    {
-      "name": "immich",
-      "internal": "http://192.168.1.10:2283",
-      "external": "https://immich.example.com"
-    },
-    {
-      "name": "dockercopilot",
-      "internal": "http://192.168.1.10:12712",
-      "external": "https://docker.example.com"
-    },
-    {
-      "name": "Navidrome",
-      "internal": "http://192.168.1.10:4533",
-      "external": "https://music1.example.com:1688"
-    },
-    {
-      "name": "transmission",
-      "internal": "http://192.168.1.10:9091",
-      "external": "https://tr.example.com"
-    },
-    {
-      "name": "plex",
-      "internal": "http://192.168.1.10:32400",
-      "external": "https://plex.example.com:16888"
-    },
-    {
-      "name": "IYUU",
-      "internal": "http://192.168.1.10:8780",
-      "external": "https://iyuu.example.com"
-    },
-    {
-      "name": "audiobookshelf",
-      "internal": "http://192.168.2.11:13378",
-      "external": "https://audio.example.com:16888"
-    },
-    {
-      "name": "CMS",
-      "internal": "http://192.168.1.10:9527",
-      "external": "https://cms.example.com"
-    },
-    {
-      "name": "CloudSaver",
-      "internal": "http://192.168.1.10:8008",
-      "external": "https://cs.example.com"
-    },
-    {
-      "name": "ms-go",
-      "internal": "http://192.168.1.10:8888",
-      "external": "https://ms.example.com"
-    },
-    {
-      "name": "MDC-NG",
-      "internal": "http://192.168.1.10:9208",
-      "external": "https://mdc.example.com"
-    },
-    {
-      "name": "tgto123",
-      "internal": "http://192.168.1.10:12366",
-      "external": "https://tg123.example.com"
-    },
-    {
-      "name": "yt-dlp Web UI",
-      "internal": "http://192.168.1.10:3033",
-      "external": "https://yt.example.com"
-    }
   ],
   "internal": {
     "categories": [
