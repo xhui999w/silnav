@@ -47,6 +47,11 @@
   .chip-del:hover{color:#ef4444;}
   .chip-edit{margin-left:2px;color:var(--accent);font-size:13px;line-height:1;cursor:pointer;padding:0 1px;}
   .chip-edit:hover{color:#1d4ed8;}
+  .chip .chip-edit,.chip .chip-del{opacity:0;transition:opacity .15s;}
+  .chip:hover .chip-edit,.chip:hover .chip-del{opacity:1;}
+  @media (hover:none),(pointer:coarse){
+    .chip .chip-edit,.chip .chip-del{opacity:1;}
+  }
   .empty{color:var(--muted);font-size:13px;text-align:center;padding:30px 0;}
   .hint{text-align:center;color:var(--muted);font-size:12px;margin-top:30px;}
   /* 弹窗 */
