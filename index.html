@@ -93,6 +93,9 @@
     <div id="mNormal">
       <label>网址</label>
       <input type="text" id="mUrl" placeholder="https://www.bilibili.com" autocomplete="off" />
+      <label>分类（可选，留空归到「我的收藏」）</label>
+      <input type="text" id="mCat" list="catList" placeholder="我的收藏" autocomplete="off" />
+      <datalist id="catList"></datalist>
     </div>
     <div id="mNasFields" style="display:none;">
       <label>内网地址</label>
@@ -227,7 +230,20 @@
     var favUser = uls.filter(function(l){ return !l.nas; });
     var nasCat = cats[0] && cats[0].nas ? cats[0] : null;
     if (nasUser.length && nasCat) nasCat.links = nasCat.links.concat(nasUser);
-    if (favUser.length) cats.push({ name:"我的收藏", user:true, links: favUser });
+    if (favUser.length) {
+      // 按所选分类分组
+      var groups = {};
+      favUser.forEach(function(l){
+        var k = l.category || '我的收藏';
+        (groups[k] = groups[k] || []).push(l);
+      });
+      Object.keys(groups).forEach(function(k){
+        var found = null;
+        for (var i=0;i<cats.length;i++){ if(cats[i].name===k){ found=cats[i]; break; } }
+        if (found){ found.links = (found.links||[]).concat(groups[k]); }
+        else { cats.push({ name:k, user:true, links: groups[k] }); }
+      });
+    }
 
     var total = 0;
     cats.forEach(function(cat){
@@ -279,14 +295,24 @@
 
   // ---------- 添加网址弹窗 ----------
   var modal = document.getElementById('modal');
-  var mName = document.getElementById('mName'), mUrl = document.getElementById('mUrl');
+  var mName = document.getElementById('mName'), mUrl = document.getElementById('mUrl'), mCat = document.getElementById('mCat');
   var mNas = document.getElementById('mNas'), mInt = document.getElementById('mInt'), mExt = document.getElementById('mExt');
   var mNormal = document.getElementById('mNormal'), mNasFields = document.getElementById('mNasFields');
-  var mErr = document.getElementById('mErr');
+  var mErr = document.getElementById('mErr'), catList = document.getElementById('catList');
 
   function openModal(){
     mName.value=''; mUrl.value=''; mInt.value=''; mExt.value=''; mErr.textContent='';
     mNas.checked=false; mNormal.style.display='block'; mNasFields.style.display='none';
+    // 填充分类候选（当前模式 + 另一模式已有的分类 + 我的收藏）
+    catList.innerHTML = '';
+    var names = [];
+    var scope = (mode === 'internal') ? cfg.internal : cfg.external;
+    var other = (mode === 'internal') ? cfg.external : cfg.internal;
+    if(scope && scope.categories) scope.categories.forEach(function(c){ names.push(c.name); });
+    if(other && other.categories) other.categories.forEach(function(c){ if(names.indexOf(c.name)<0) names.push(c.name); });
+    if(names.indexOf('我的收藏')<0) names.push('我的收藏');
+    names.forEach(function(n){ var o=document.createElement('option'); o.value=n; catList.appendChild(o); });
+    mCat.value = '我的收藏';
     modal.classList.remove('hidden'); mName.focus();
   }
   function closeModal(){ modal.classList.add('hidden'); }
@@ -312,7 +338,8 @@
       var url = mUrl.value.trim();
       if(!url){ mErr.textContent = '请填写网址'; return; }
       if(!/^https?:\/\//i.test(url)) url = 'https://' + url;
-      arr.push({ id: Date.now(), name: name, url: url });
+      var cat = mCat.value.trim() || '我的收藏';
+      arr.push({ id: Date.now(), name: name, url: url, category: cat });
     }
     saveUserLinks(arr); closeModal(); render();
   });
