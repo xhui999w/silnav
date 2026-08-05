@@ -70,9 +70,15 @@
   .icon-btn svg{width:18px;height:18px;display:block;}
   /* 网络切换按钮：内网=绿、外网=橙，整颗按钮变色，对比最明显 */
   .net-toggle{color:#16a34a;border-color:#bfe9cf;}
-  .net-toggle .net-dot{background:#16a34a;}
+  .net-dot{position:absolute;top:3px;right:3px;width:8px;height:8px;border-radius:50%;
+    background:#16a34a;box-shadow:0 0 0 1.5px #fff;}
   .net-toggle.ext{color:#ea580c;border-color:#fbd9bf;}
   .net-toggle.ext .net-dot{background:#ea580c;}
+  /* 内外网状态文字徽章（常显，跟随模式变色） */
+  .net-switch{display:flex;align-items:center;gap:6px;}
+  .net-badge{font-size:12px;font-weight:600;padding:4px 9px;border-radius:999px;
+    color:#16a34a;background:#eafaf0;border:1px solid #bfe9cf;}
+  .net-switch.ext .net-badge{color:#ea580c;background:#fff5ec;border-color:#fbd9bf;}
   /* 自定义悬停提示 */
   .icon-btn::after{content:attr(data-tip);position:absolute;top:calc(100% + 8px);right:0;white-space:nowrap;
     background:#1f2937;color:#fff;font-size:12px;padding:5px 9px;border-radius:6px;opacity:0;pointer-events:none;
@@ -117,10 +123,13 @@
       </div>
     </div>
     <div class="tools">
+      <div class="net-switch" id="netSwitch">
       <button type="button" class="icon-btn net-toggle" id="netToggle" data-tip="切换内/外网">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
         <span class="net-dot"></span>
       </button>
+        <span class="net-badge" id="netBadge">外网</span>
+      </div>
       <button type="button" class="icon-btn edit-btn" id="editToggle" data-tip="编辑 / 完成">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
       </button>
@@ -653,8 +662,14 @@
 
   // 内外网手动切换：默认按登录网址自动判断，点图标按钮手动覆盖并实时切换
   var netToggle = document.getElementById('netToggle');
+  var netSwitch = document.getElementById('netSwitch');
+  var netBadge = document.getElementById('netBadge');
   function syncNetToggle(){
-    netToggle.classList.toggle('ext', mode === 'external');
+    var ext = mode === 'external';
+    netToggle.classList.toggle('ext', ext);
+    netSwitch.classList.toggle('ext', ext);
+    netBadge.textContent = ext ? '外网' : '内网';
+    netToggle.setAttribute('data-tip', ext ? '当前：外网 · 点击切换内网' : '当前：内网 · 点击切换外网');
   }
   syncNetToggle();
   netToggle.addEventListener('click', function(){
