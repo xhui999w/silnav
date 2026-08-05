@@ -61,11 +61,23 @@
   /* 编辑按钮默认隐藏，仅「编辑模式」下显示 */
   .chip-edit,.chip-del{display:none;}
   body.editing .chip-edit,body.editing .chip-del{display:inline;}
-  /* 顶部编辑开关 */
-  .edit-toggle{margin-left:8px;border:1px solid var(--border);background:var(--card);color:var(--accent);
-    font-size:13px;padding:7px 14px;border-radius:8px;cursor:pointer;white-space:nowrap;transition:.15s;}
-  .edit-toggle:hover{border-color:var(--accent);}
-  body.editing .edit-toggle{background:var(--accent);color:#fff;border-color:var(--accent);}
+  /* 顶部图标按钮（网络切换 / 编辑）通用 */
+  .icon-btn{margin-left:8px;width:34px;height:34px;border:1px solid var(--border);background:var(--card);
+    color:var(--text);border-radius:8px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;
+    position:relative;transition:.15s;flex-shrink:0;}
+  .icon-btn:hover{border-color:var(--accent);color:var(--accent);}
+  .icon-btn svg{width:18px;height:18px;display:block;}
+  /* 网络切换按钮：当前模式指示点（绿=内网，蓝=外网） */
+  .net-dot{position:absolute;top:3px;right:3px;width:7px;height:7px;border-radius:50%;
+    background:var(--green);box-shadow:0 0 0 1.5px #fff;}
+  .net-toggle.ext .net-dot{background:var(--accent);}
+  /* 自定义悬停提示 */
+  .icon-btn::after{content:attr(data-tip);position:absolute;top:calc(100% + 8px);right:0;white-space:nowrap;
+    background:#1f2937;color:#fff;font-size:12px;padding:5px 9px;border-radius:6px;opacity:0;pointer-events:none;
+    transition:opacity .15s;z-index:40;}
+  .icon-btn:hover::after{opacity:1;}
+  /* 编辑模式：编辑按钮高亮 */
+  body.editing .icon-btn.edit-btn{background:var(--accent);color:#fff;border-color:var(--accent);}
   .empty{color:var(--muted);font-size:13px;text-align:center;padding:30px 0;}
   .hint{text-align:center;color:var(--muted);font-size:12px;margin-top:30px;}
   /* 弹窗 */
@@ -102,7 +114,13 @@
         <div class="engine-menu" id="engineMenu"></div>
       </div>
     </div>
-    <button type="button" class="edit-toggle" id="editToggle">编辑</button>
+    <button type="button" class="icon-btn net-toggle" id="netToggle" data-tip="切换内/外网">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+      <span class="net-dot"></span>
+    </button>
+    <button type="button" class="icon-btn edit-btn" id="editToggle" data-tip="编辑 / 完成">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+    </button>
   </header>
   <main id="main"></main>
   <div class="hint" id="hint"></div>
@@ -629,11 +647,22 @@
   });
   document.addEventListener('click', function(){ engineMenu.classList.remove('open'); });
 
-  // 编辑模式总开关：默认卡片无按钮，点「编辑」才浮现 ✎/×
+  // 内外网手动切换：默认按登录网址自动判断，点图标按钮手动覆盖并实时切换
+  var netToggle = document.getElementById('netToggle');
+  function syncNetToggle(){
+    netToggle.classList.toggle('ext', mode === 'external');
+  }
+  syncNetToggle();
+  netToggle.addEventListener('click', function(){
+    mode = (mode === 'internal') ? 'external' : 'internal';
+    syncNetToggle();
+    render();
+  });
+
+  // 编辑模式总开关：默认卡片无按钮，点图标才浮现 ✎/×
   var editToggle = document.getElementById('editToggle');
   editToggle.addEventListener('click', function(){
-    var on = document.body.classList.toggle('editing');
-    editToggle.textContent = on ? '完成' : '编辑';
+    document.body.classList.toggle('editing');
   });
 
   render();
