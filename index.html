@@ -234,6 +234,19 @@
   </div>
 </div>
 
+<div class="modal hidden" id="tokenModal">
+  <div class="modal-box" style="width:340px;">
+    <div class="modal-title">保存 NAS 排序</div>
+    <label for="adminTokenInput">管理令牌</label>
+    <input type="password" id="adminTokenInput" placeholder="输入 SILNAV_ADMIN_TOKEN" autocomplete="current-password" />
+    <div class="err" id="tokenErr"></div>
+    <div class="modal-actions">
+      <button class="btn-ghost" id="tokenCancel">取消</button>
+      <button class="btn-primary" id="tokenSave">确认并保存</button>
+    </div>
+  </div>
+</div>
+
 <input type="file" id="configFile" accept="application/json,.json" hidden />
 <div class="toast hidden" id="toast" role="status" aria-live="polite"></div>
 
@@ -329,10 +342,12 @@
     remoteOrder.modes[mode][catName] = keys;
     var token = safeGetText('silnav_admin_token');
     if(!token){
-      token = window.prompt('首次保存排序，请输入 Silnav 管理令牌：') || '';
-      if(!token){ showToast('未保存排序：没有输入管理令牌', 'error'); return; }
-      safeSetText('silnav_admin_token', token);
+      requestAdminToken(function(value){ persistRemoteOrder(value); });
+      return;
     }
+    persistRemoteOrder(token);
+  }
+  function persistRemoteOrder(token){
     fetch('/api/order', {
       method:'PUT',
       headers:{'Content-Type':'application/json', 'Authorization':'Bearer ' + token},
@@ -347,6 +362,27 @@
       showToast('排序保存失败：' + error.message, 'error');
     });
   }
+  var pendingTokenCallback = null;
+  function requestAdminToken(callback){
+    pendingTokenCallback = callback;
+    document.getElementById('tokenErr').textContent = '';
+    document.getElementById('adminTokenInput').value = '';
+    document.getElementById('tokenModal').classList.remove('hidden');
+    setTimeout(function(){ document.getElementById('adminTokenInput').focus(); }, 0);
+  }
+  function closeTokenModal(){
+    document.getElementById('tokenModal').classList.add('hidden'); pendingTokenCallback = null;
+  }
+  document.getElementById('tokenCancel').addEventListener('click', closeTokenModal);
+  document.getElementById('tokenSave').addEventListener('click', function(){
+    var token = document.getElementById('adminTokenInput').value.trim();
+    if(!token){ document.getElementById('tokenErr').textContent = '请输入管理令牌'; return; }
+    var callback = pendingTokenCallback; closeTokenModal(); safeSetText('silnav_admin_token', token);
+    if(callback) callback(token);
+  });
+  document.getElementById('adminTokenInput').addEventListener('keydown', function(e){
+    if(e.key === 'Enter') document.getElementById('tokenSave').click();
+  });
 
   function isIpOrLocal(host){
     return host === 'localhost' || /^\d{1,3}(\.\d{1,3}){3}$/.test(host);
@@ -563,12 +599,9 @@
   }
 
   function enableChipSorting(chips, catName){
-    var dragged = null, pointerId = null, startX = 0, startY = 0, startOrder = '';
+    var dragged = null, pointerId = null, startX = 0, startY = 0;
     function saveCurrentOrder(){
       saveRemoteOrder(catName, Array.prototype.map.call(chips.querySelectorAll('.chip'), function(chip){ return chip.dataset.orderKey; }));
-    }
-    function currentOrder(){
-      return Array.prototype.map.call(chips.querySelectorAll('.chip'), function(chip){ return chip.dataset.orderKey; }).join('\n');
     }
     var touchTimer = null, dragActive = false, pointerType = '';
     function activateDrag(){
@@ -580,7 +613,7 @@
       if(!document.body.classList.contains('editing')) return;
       var chip = e.target.closest('.chip'); if(!chip) return;
       dragged = chip; pointerId = e.pointerId; pointerType = e.pointerType;
-      startX = e.clientX; startY = e.clientY; startOrder = currentOrder(); dragActive = false;
+      startX = e.clientX; startY = e.clientY; dragActive = false;
       if(pointerType !== 'mouse') touchTimer = setTimeout(activateDrag, 420);
     });
     chips.addEventListener('pointermove', function(e){
@@ -599,7 +632,7 @@
       clearTimeout(touchTimer);
       if(dragActive && dragged){
         dragged.classList.remove('dragging'); chips.classList.remove('drag-active');
-        if(currentOrder() !== startOrder){ suppressChipClickUntil = Date.now() + 500; saveCurrentOrder(); }
+        suppressChipClickUntil = Date.now() + 500; saveCurrentOrder();
       }
       dragged = null; pointerId = null; dragActive = false;
     }
