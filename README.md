@@ -4,13 +4,13 @@
 
 ## Docker Compose 安装
 
-公开镜像不包含任何个人网址，支持 `linux/amd64` 和 `linux/arm64`：
+公开镜像不包含任何个人网址，支持 `linux/amd64` 和 `linux/arm64`。
 
 ```text
 ghcr.io/xhui999w/silnav:latest
 ```
 
-创建 `compose.yml`：
+建议使用“目录挂载”，可以避免 Docker 在源文件不存在时误创建同名文件夹：
 
 ```yaml
 services:
@@ -21,31 +21,20 @@ services:
     ports:
       - "8080:80"
     volumes:
-      - ./sites.js:/usr/share/nginx/html/sites.js:ro
+      - ./config:/usr/share/nginx/html/config:ro
 ```
 
-将自己的 `sites.js` 与 `compose.yml` 放在同一目录，然后启动：
+在 `compose.yml` 同级目录创建 `config` 文件夹，把自己的配置保存为 `config/sites.js`，然后启动：
 
 ```bash
-docker compose up -d
-```
-
-浏览器访问：
-
-```text
-http://你的NAS-IP:8080
-```
-
-更新镜像：
-
-```bash
+mkdir -p config
 docker compose pull
 docker compose up -d
 ```
 
-挂载的 `sites.js` 保存在 NAS 本地，更新或重建容器不会覆盖个人网址。
+浏览器访问 `http://你的NAS-IP:8080`。挂载的 `config/sites.js` 保存在 NAS 本地，更新或重建容器不会覆盖个人网址。
 
-如果不需要预置配置，可以删除 `volumes` 两行，启动后直接在页面中添加网址。
+如果不需要预置配置，可删除 `volumes` 两行，启动后直接在页面中添加网址。
 
 ## 主要功能
 
@@ -61,27 +50,35 @@ docker compose up -d
 
 ## `sites.js` 配置
 
-公开镜像内置空白通用配置。需要批量预置网址时，编辑并挂载自己的 `sites.js`。
+公开镜像先加载通用空白配置 `/sites.js`，随后加载可选的私人覆盖配置 `/config/sites.js`。私人文件中的 `NAV_CONFIG` 会覆盖通用配置。
 
 NAS 双地址示例：
 
 ```js
-{
-  "name": "MoviePilot",
-  "internal": "http://192.168.1.100:3000",
-  "external": "https://movie.example.com"
-}
+window.NAV_CONFIG = {
+  nas: [
+    {
+      name: "MoviePilot",
+      internal: "http://192.168.1.100:3000",
+      external: "https://movie.example.com"
+    }
+  ]
+};
 ```
 
 普通分类示例：
 
 ```js
-{
-  "name": "常用网站",
-  "links": [
-    { "name": "示例", "url": "https://example.com" }
-  ]
-}
+window.NAV_CONFIG = {
+  external: {
+    categories: [
+      {
+        name: "常用网站",
+        links: [{ name: "示例", url: "https://example.com" }]
+      }
+    ]
+  }
+};
 ```
 
 主要字段：
@@ -95,24 +92,22 @@ NAS 双地址示例：
 
 ## Docker 命令安装
 
-不使用 Compose 时：
-
 ```bash
 docker run -d \
   --name silnav \
   --restart unless-stopped \
   -p 8080:80 \
-  -v /你的NAS路径/sites.js:/usr/share/nginx/html/sites.js:ro \
+  -v /你的NAS路径/config:/usr/share/nginx/html/config:ro \
   ghcr.io/xhui999w/silnav:latest
 ```
 
 ## 数据与隐私
 
-- 公开仓库和容器镜像不包含作者的个人网址、内网 IP 或端口。
-- 页面内新增和修改的数据默认保存在当前浏览器 `localStorage`。
-- 使用导出功能可以备份或迁移浏览器中的本地配置。
-- NAS 上的私人 `sites.js` 建议只读挂载，并且不要提交到公开仓库。
+- 公开仓库和容器镜像不包含作者的个人网址、内网 IP 或端口
+- 页面内新增和修改的数据默认保存在当前浏览器 `localStorage`
+- 使用导出功能可以备份或迁移浏览器中的本地配置
+- NAS 上的私人 `config/sites.js` 建议只读挂载，不要提交到公开仓库
 
 ## 其他部署方式
 
-项目只有静态文件，也可以直接部署到任意静态服务器或 GitHub Pages。
+项目只有静态文件，也可直接部署到任意静态服务器或 GitHub Pages。此时若不需要私人覆盖文件，保留仓库中的空白 `config/sites.js` 即可。
