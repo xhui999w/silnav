@@ -63,6 +63,10 @@
     position:relative;border:1px solid var(--border);border-radius:12px;text-decoration:none;color:var(--text);font-size:13px;font-weight:500;
     overflow-wrap:anywhere;box-shadow:var(--shadow);transition:border-color .15s,background-color .15s,box-shadow .15s;}
   .chip:hover{border-color:#b9cff3;background:#fbfdff;box-shadow:0 3px 10px rgba(16,24,40,.07);}
+  body.editing .chip{cursor:grab;touch-action:none;user-select:none;}
+  body.editing .chip:active{cursor:grabbing;}
+  .chip.dragging{opacity:.45;border-color:var(--accent);}
+  .chips.drag-active{outline:2px dashed var(--accent);outline-offset:5px;border-radius:10px;}
   .chip img{width:44px;height:44px;flex:0 0 auto;border-radius:11px;object-fit:contain;}
   .txt-icon{width:44px;height:44px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;font-size:20px;
     font-weight:600;color:var(--accent);background:var(--accent-bg);border-radius:11px;}
@@ -293,6 +297,56 @@
     return 'external';
   }
   var mode = detect();
+  var remoteOrder = {version:1, modes:{}};
+  var suppressChipClickUntil = 0;
+
+  function stableOrderKey(parts){
+    return parts.map(function(value){ return String(value == null ? '' : value).replace(/\|/g, '%7C'); }).join('|');
+  }
+  function orderedLinks(catName, links){
+    var modeOrder = remoteOrder.modes && remoteOrder.modes[mode];
+    var keys = modeOrder && modeOrder[catName];
+    if(!Array.isArray(keys) || !keys.length) return links;
+    var rank = {};
+    keys.forEach(function(key, index){ if(!(key in rank)) rank[key] = index; });
+    return links.map(function(link, index){ return {link:link, index:index}; }).sort(function(a,b){
+      var ar = Object.prototype.hasOwnProperty.call(rank, a.link.orderKey) ? rank[a.link.orderKey] : Number.MAX_SAFE_INTEGER;
+      var br = Object.prototype.hasOwnProperty.call(rank, b.link.orderKey) ? rank[b.link.orderKey] : Number.MAX_SAFE_INTEGER;
+      return ar === br ? a.index - b.index : ar - br;
+    }).map(function(entry){ return entry.link; });
+  }
+  function loadRemoteOrder(){
+    fetch('/api/order', {cache:'no-store'}).then(function(response){
+      if(!response.ok) throw new Error('HTTP ' + response.status);
+      return response.json();
+    }).then(function(data){
+      if(data && data.version === 1 && data.modes){ remoteOrder = data; render(); }
+    }).catch(function(){ showToast('无法读取 NAS 排序，暂按默认顺序显示', 'error'); });
+  }
+  function saveRemoteOrder(catName, keys){
+    remoteOrder.modes = remoteOrder.modes || {};
+    remoteOrder.modes[mode] = remoteOrder.modes[mode] || {};
+    remoteOrder.modes[mode][catName] = keys;
+    var token = safeGetText('silnav_admin_token');
+    if(!token){
+      token = window.prompt('首次保存排序，请输入 Silnav 管理令牌：') || '';
+      if(!token){ showToast('未保存排序：没有输入管理令牌', 'error'); return; }
+      safeSetText('silnav_admin_token', token);
+    }
+    fetch('/api/order', {
+      method:'PUT',
+      headers:{'Content-Type':'application/json', 'Authorization':'Bearer ' + token},
+      body:JSON.stringify(remoteOrder)
+    }).then(function(response){
+      if(response.ok) return response.json();
+      return response.json().catch(function(){ return {}; }).then(function(body){
+        var error = new Error(body.error || ('HTTP ' + response.status)); error.status = response.status; throw error;
+      });
+    }).then(function(){ showToast('排序已保存到 NAS'); }).catch(function(error){
+      if(error.status === 401) safeRemove('silnav_admin_token');
+      showToast('排序保存失败：' + error.message, 'error');
+    });
+  }
 
   function isIpOrLocal(host){
     return host === 'localhost' || /^\d{1,3}(\.\d{1,3}){3}$/.test(host);
@@ -461,9 +515,12 @@
   function createChip(item){
     var a = document.createElement('a');
     a.href = item.url; a.target = '_blank'; a.rel = 'noopener'; a.className = 'chip';
+    a.dataset.orderKey = item.orderKey;
+    a.draggable = document.body.classList.contains('editing');
     a.title = (item.name || item.url) + ' — ' + item.url;
     // 编辑模式下点卡片任意位置都直接打开「修改」，不再跳转网站
     a.addEventListener('click', function(e){
+      if(Date.now() < suppressChipClickUntil){ e.preventDefault(); return; }
       if(document.body.classList.contains('editing')){
         e.preventDefault();
         openEditModal(item);
@@ -505,6 +562,64 @@
     return a;
   }
 
+  function enableChipSorting(chips, catName){
+    var dragged = null;
+    function saveCurrentOrder(){
+      saveRemoteOrder(catName, Array.prototype.map.call(chips.querySelectorAll('.chip'), function(chip){ return chip.dataset.orderKey; }));
+    }
+    chips.addEventListener('dragstart', function(e){
+      if(!document.body.classList.contains('editing')){ e.preventDefault(); return; }
+      dragged = e.target.closest('.chip');
+      if(!dragged) return;
+      dragged.classList.add('dragging'); chips.classList.add('drag-active');
+      e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', dragged.dataset.orderKey);
+    });
+    chips.addEventListener('dragover', function(e){
+      if(!dragged) return;
+      e.preventDefault();
+      var target = e.target.closest('.chip');
+      if(!target || target === dragged || target.parentNode !== chips) return;
+      var rect = target.getBoundingClientRect();
+      var before = e.clientY < rect.top + rect.height / 2 || (Math.abs(e.clientY - (rect.top + rect.height / 2)) < rect.height / 3 && e.clientX < rect.left + rect.width / 2);
+      chips.insertBefore(dragged, before ? target : target.nextSibling);
+    });
+    chips.addEventListener('dragend', function(){
+      if(!dragged) return;
+      dragged.classList.remove('dragging'); chips.classList.remove('drag-active'); dragged = null;
+      suppressChipClickUntil = Date.now() + 400; saveCurrentOrder();
+    });
+
+    var touchChip = null, touchTimer = null, touchActive = false;
+    chips.addEventListener('pointerdown', function(e){
+      if(e.pointerType === 'mouse' || !document.body.classList.contains('editing')) return;
+      var chip = e.target.closest('.chip'); if(!chip) return;
+      touchChip = chip; touchActive = false;
+      touchTimer = setTimeout(function(){
+        touchActive = true; touchChip.classList.add('dragging'); chips.classList.add('drag-active');
+        try{ touchChip.setPointerCapture(e.pointerId); }catch(ignore){}
+      }, 420);
+    });
+    chips.addEventListener('pointermove', function(e){
+      if(!touchActive || !touchChip) return;
+      e.preventDefault();
+      var target = document.elementFromPoint(e.clientX, e.clientY);
+      target = target && target.closest('.chip');
+      if(!target || target === touchChip || target.parentNode !== chips) return;
+      var rect = target.getBoundingClientRect();
+      chips.insertBefore(touchChip, e.clientY < rect.top + rect.height / 2 ? target : target.nextSibling);
+    });
+    function finishTouch(){
+      clearTimeout(touchTimer);
+      if(touchActive && touchChip){
+        touchChip.classList.remove('dragging'); chips.classList.remove('drag-active');
+        suppressChipClickUntil = Date.now() + 500; saveCurrentOrder();
+      }
+      touchChip = null; touchActive = false;
+    }
+    chips.addEventListener('pointerup', finishTouch);
+    chips.addEventListener('pointercancel', finishTouch);
+  }
+
   function render(){
     var q = (document.getElementById('search').value || '').trim().toLowerCase();
     var main = document.getElementById('main');
@@ -528,7 +643,7 @@
           name:(ov && ov.name != null ? ov.name : link.name),
           url:disp, editUrl:ext, internal:internal, external:ext,
           icon:(ov && ov.icon != null ? ov.icon : link.icon),
-          catName:'NAS' });
+          catName:'NAS', orderKey:stableOrderKey(['nas', link.name, link.internal, link.external]) });
       });
     }
 
@@ -543,7 +658,8 @@
         var url = (ov && ov.url != null) ? ov.url : link.url;
         var icon = (ov && ov.icon != null) ? ov.icon : link.icon;
         var catName = (ov && ov.category != null) ? ov.category : c.name;
-        items.push({ uid:id, isUser:false, isNas:false, name:name, url:url, icon:icon, catName:catName });
+        items.push({ uid:id, isUser:false, isNas:false, name:name, url:url, icon:icon, catName:catName,
+          orderKey:stableOrderKey(['cfg', mode, c.name, link.name, link.url]) });
       });
     });
 
@@ -553,9 +669,9 @@
       if (hidden.indexOf('user:' + id) >= 0) return;
       if (l.nas){
         var disp = (mode === 'internal' && l.internal) ? l.internal : (l.external || l.internal);
-        items.push({ uid:id, isUser:true, isNas:true, name:l.name, url:disp, icon:l.icon, catName:'NAS' });
+        items.push({ uid:id, isUser:true, isNas:true, name:l.name, url:disp, icon:l.icon, catName:'NAS', orderKey:stableOrderKey(['user', id]) });
       } else {
-        items.push({ uid:id, isUser:true, isNas:false, name:l.name, url:l.url, icon:l.icon, catName:l.category||'我的收藏' });
+        items.push({ uid:id, isUser:true, isNas:false, name:l.name, url:l.url, icon:l.icon, catName:l.category||'我的收藏', orderKey:stableOrderKey(['user', id]) });
       }
     });
 
@@ -575,7 +691,7 @@
 
     var total = 0;
     orderedCats.forEach(function(catName){
-      var links = groups[catName];
+      var links = orderedLinks(catName, groups[catName] || []);
       if(!links || !links.length) return;
 
       var section = document.createElement('section'); section.className = 'category';
@@ -591,6 +707,7 @@
 
       var chips = document.createElement('div'); chips.className = 'chips';
       links.forEach(function(it){ chips.appendChild(createChip(it)); });
+      enableChipSorting(chips, catName);
       total += links.length;
 
       var isCollapsed = safeGetText(collapsedKey(catName)) === '1';
@@ -959,8 +1076,10 @@
   var editToggle = document.getElementById('editToggle');
   editToggle.addEventListener('click', function(){
     document.body.classList.toggle('editing');
+    render();
   });
 
+  loadRemoteOrder();
   render();
 })();
 </script>

@@ -1,6 +1,6 @@
 # Silnav 静航
 
-极简、快速、无后台的个人网址导航。纯 HTML/CSS/JavaScript，无数据库、无账号系统，适合部署在 NAS、Docker 或 GitHub Pages。
+极简、快速的个人网址导航。前端保持纯 HTML/CSS/JavaScript，无数据库、无账号系统；Docker 版附带一个轻量配置接口，用于把拖动排序保存到 NAS。
 
 ## Docker Compose 安装
 
@@ -20,31 +20,36 @@ services:
     restart: unless-stopped
     ports:
       - "8080:80"
+    environment:
+      SILNAV_ADMIN_TOKEN: "请改成自己的长随机令牌"
     volumes:
-      - ./config:/usr/share/nginx/html/config:ro
+      - ./config:/config:ro
+      - ./data:/data
 ```
 
-在 `compose.yml` 同级目录创建 `config` 文件夹，把自己的配置保存为 `config/sites.js`，然后启动：
+在 `compose.yml` 同级目录创建 `config` 和 `data` 文件夹，把自己的配置保存为 `config/sites.js`，并把管理令牌改成不易猜测的随机字符串：
 
 ```bash
-mkdir -p config
+mkdir -p config data
 docker compose pull
 docker compose up -d
 ```
 
-浏览器访问 `http://你的NAS-IP:8080`。挂载的 `config/sites.js` 保存在 NAS 本地，更新或重建容器不会覆盖个人网址。
+浏览器访问 `http://你的NAS-IP:8080`。挂载的 `config/sites.js` 和 `data/order.json` 保存在 NAS 本地，更新或重建容器不会覆盖个人网址和排序。
 
 如果不需要预置配置，可删除 `volumes` 两行，启动后直接在页面中添加网址。
 
 ## 主要功能
 
-- 纯静态页面，无后台、数据库和大型依赖
+- 静态前端，无数据库和大型依赖
 - NAS 网址支持 `internal` 内网地址和 `external` 外网地址
 - 自动识别访问环境，也可手动切换内网/外网
 - 分类折叠、新增、编辑、删除和本地隐藏
 - 配置 JSON 导入、导出及异常数据保护
 - 默认首字图标，不批量请求外部服务
 - 支持在单个网址的编辑界面手动获取 favicon
+- 编辑模式下支持拖动网址排序；桌面直接拖动，手机长按后拖动
+- Docker 版将排序写入 NAS，所有设备共享同一顺序
 - 清亮、深色、暖色三套主题
 - 桌面、平板和手机响应式布局
 
@@ -97,7 +102,9 @@ docker run -d \
   --name silnav \
   --restart unless-stopped \
   -p 8080:80 \
-  -v /你的NAS路径/config:/usr/share/nginx/html/config:ro \
+  -e SILNAV_ADMIN_TOKEN='请改成自己的长随机令牌' \
+  -v /你的NAS路径/config:/config:ro \
+  -v /你的NAS路径/data:/data \
   ghcr.io/xhui999w/silnav:latest
 ```
 
@@ -107,7 +114,8 @@ docker run -d \
 - 页面内新增和修改的数据默认保存在当前浏览器 `localStorage`
 - 使用导出功能可以备份或迁移浏览器中的本地配置
 - NAS 上的私人 `config/sites.js` 建议只读挂载，不要提交到公开仓库
+- 拖动排序保存在 `data/order.json`；写入接口由 `SILNAV_ADMIN_TOKEN` 保护
 
 ## 其他部署方式
 
-项目只有静态文件，也可直接部署到任意静态服务器或 GitHub Pages。此时若不需要私人覆盖文件，保留仓库中的空白 `config/sites.js` 即可。
+前端文件仍可部署到任意静态服务器或 GitHub Pages，但静态部署无法把拖动排序写回服务器；Docker 部署才支持 NAS 持久化排序。

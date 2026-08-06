@@ -8,7 +8,8 @@ on:
       - sites.js
       - config/sites.js
       - Dockerfile
-      - nginx.conf
+      - go.mod
+      - server/main.go
       - .dockerignore
       - .github/workflows/publish-container.yml
   workflow_dispatch:
