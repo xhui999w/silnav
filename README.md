@@ -1,64 +1,118 @@
-# Silnav静航
+# Silnav 静航
 
-极简网址导航，纯静态（单个 `index.html` + `sites.js`），无需后端，可挂 GitHub Pages / 内网 NAS。
+极简、快速、无后台的个人网址导航。纯 HTML/CSS/JavaScript，无数据库、无账号系统，适合部署在 NAS、Docker 或 GitHub Pages。
 
-> 数据可从 sun-Panel 等来源导入，支持内网 / 外网分组。
+## Docker Compose 安装
 
-## 特点
-- **按访问地址自动切换内/外网**：页面读取自身被访问的网址（内网 IP 段 → 内网模式，否则外网模式），自动显示对应那一组链接，无切换按钮、不同时显示两套
-- 支持 NAS 设备双地址（内网 + 外网），点击图标按当前环境自动选地址（内网打开走内网、外网打开走外网）—— 仅在私有 / 内网部署时配置使用
-- 默认使用文字首字图标，不产生批量图标请求；可在编辑窗口或顶部工具栏手动获取 favicon
-- 搜索框：输入实时过滤链接，回车用当前引擎搜网页（按钮切换 百度/必应/Google，默认 **必应**）
-- 顶部带「搜索」分类（百度 / Bing / 谷歌），内外网模式均显示，一键直达
-- 分类可点击折叠，状态自动记住
-
-## 使用
-- **分类快速添加**：点击分类标题右侧的「+」添加网址；NAS 分类可分别填写内网与外网地址。用户修改保存在浏览器本地。
-- **高级 / 批量**：直接编辑 `sites.js`：
-
-- `title` / `logo`：页面标题与左上角图标文字
-- `searchEngine`：默认搜索引擎名（对应 `searchEngines` 里的 `name`，默认「必应」）
-- `internalHosts` / `internalIpPrefixes`：哪些网址算内网（导航页自身被访问时用来判断）
-- `nas`（可选，仅私有 / 内网部署使用）：顶部 NAS 设备，每个填 `internal`（内网地址）+ `external`（外网地址）
-  ```js
-  { "name": "MoviePilot-V2", "internal": "http://192.168.1.100:3004", "external": "https://mp-v2.example.com" }
-  ```
-- `internal.categories` / `external.categories`：各自环境下显示的普通分类（含「搜索」分类，每个链接填 `url`）
-- `icon`（可选）：填 1 个字强制显示文字图标；不填自动抓 favicon
-
-## 从 sun-Panel 导入
-`sites.js` 中的链接由 sun-Panel 的 SQLite 数据库（`item_icon_group` 分组 + `item_icon` 网址，`deleted_at` 为空视为有效）导出：
-- 同时带内网(`lan_url`)与外网(`url`)的 homelab 服务 → 导入为顶部 NAS（双地址）
-- 纯外网网址 → 导入为对应分组分类（如「常用网站」）
-
-## 部署
-- 内网和外网各部署一份同一份文件：
-  - **内网**：NAS / 内网服务器（如 `http://192.168.1.100:9999`）→ 打开自动内网模式
-  - **外网**：GitHub Pages 或公网域名 → 打开自动外网模式
-
-> 只部署一边也完全能用，只是那一边只显示对应环境的分类。
-
-## 容器镜像
-
-公开镜像不包含任何个人网址：
+公开镜像不包含任何个人网址，支持 `linux/amd64` 和 `linux/arm64`：
 
 ```text
 ghcr.io/xhui999w/silnav:latest
 ```
 
-直接运行通用空白版本：
+创建 `compose.yml`：
 
-```bash
-docker run -d --name silnav --restart unless-stopped -p 8080:80 ghcr.io/xhui999w/silnav:latest
+```yaml
+services:
+  silnav:
+    image: ghcr.io/xhui999w/silnav:latest
+    container_name: silnav
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./sites.js:/usr/share/nginx/html/sites.js:ro
 ```
 
-在 NAS 上使用私人配置时，将自己的 `sites.js` 只读挂载到容器中：
+将自己的 `sites.js` 与 `compose.yml` 放在同一目录，然后启动：
 
 ```bash
-docker run -d --name silnav --restart unless-stopped \
+docker compose up -d
+```
+
+浏览器访问：
+
+```text
+http://你的NAS-IP:8080
+```
+
+更新镜像：
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+挂载的 `sites.js` 保存在 NAS 本地，更新或重建容器不会覆盖个人网址。
+
+如果不需要预置配置，可以删除 `volumes` 两行，启动后直接在页面中添加网址。
+
+## 主要功能
+
+- 纯静态页面，无后台、数据库和大型依赖
+- NAS 网址支持 `internal` 内网地址和 `external` 外网地址
+- 自动识别访问环境，也可手动切换内网/外网
+- 分类折叠、新增、编辑、删除和本地隐藏
+- 配置 JSON 导入、导出及异常数据保护
+- 默认首字图标，不批量请求外部服务
+- 支持单个网址或顶部按钮手动获取 favicon
+- 清亮、深色、暖色三套主题
+- 桌面、平板和手机响应式布局
+
+## `sites.js` 配置
+
+公开镜像内置空白通用配置。需要批量预置网址时，编辑并挂载自己的 `sites.js`。
+
+NAS 双地址示例：
+
+```js
+{
+  "name": "MoviePilot",
+  "internal": "http://192.168.1.100:3000",
+  "external": "https://movie.example.com"
+}
+```
+
+普通分类示例：
+
+```js
+{
+  "name": "常用网站",
+  "links": [
+    { "name": "示例", "url": "https://example.com" }
+  ]
+}
+```
+
+主要字段：
+
+- `title` / `logo`：页面标题和左上角标识
+- `searchEngine` / `searchEngines`：默认搜索引擎和可选引擎
+- `internalHosts` / `internalIpPrefixes`：内网环境识别规则
+- `nas`：支持内外网双地址的 NAS 入口
+- `internal.categories` / `external.categories`：不同网络环境的普通分类
+- `icon`：可选图片地址或 Data URL；留空时显示名称首字
+
+## Docker 命令安装
+
+不使用 Compose 时：
+
+```bash
+docker run -d \
+  --name silnav \
+  --restart unless-stopped \
   -p 8080:80 \
   -v /你的NAS路径/sites.js:/usr/share/nginx/html/sites.js:ro \
   ghcr.io/xhui999w/silnav:latest
 ```
 
-支持 `linux/amd64` 和 `linux/arm64`。更新镜像不会覆盖 NAS 上挂载的私人配置文件。
+## 数据与隐私
+
+- 公开仓库和容器镜像不包含作者的个人网址、内网 IP 或端口。
+- 页面内新增和修改的数据默认保存在当前浏览器 `localStorage`。
+- 使用导出功能可以备份或迁移浏览器中的本地配置。
+- NAS 上的私人 `sites.js` 建议只读挂载，并且不要提交到公开仓库。
+
+## 其他部署方式
+
+项目只有静态文件，也可以直接部署到任意静态服务器或 GitHub Pages。
