@@ -516,7 +516,7 @@
     var a = document.createElement('a');
     a.href = item.url; a.target = '_blank'; a.rel = 'noopener'; a.className = 'chip';
     a.dataset.orderKey = item.orderKey;
-    a.draggable = document.body.classList.contains('editing');
+    a.draggable = false;
     a.title = (item.name || item.url) + ' — ' + item.url;
     // 编辑模式下点卡片任意位置都直接打开「修改」，不再跳转网站
     a.addEventListener('click', function(e){
@@ -563,61 +563,48 @@
   }
 
   function enableChipSorting(chips, catName){
-    var dragged = null;
+    var dragged = null, pointerId = null, startX = 0, startY = 0, startOrder = '';
     function saveCurrentOrder(){
       saveRemoteOrder(catName, Array.prototype.map.call(chips.querySelectorAll('.chip'), function(chip){ return chip.dataset.orderKey; }));
     }
-    chips.addEventListener('dragstart', function(e){
-      if(!document.body.classList.contains('editing')){ e.preventDefault(); return; }
-      dragged = e.target.closest('.chip');
-      if(!dragged) return;
-      dragged.classList.add('dragging'); chips.classList.add('drag-active');
-      e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', dragged.dataset.orderKey);
+    function currentOrder(){
+      return Array.prototype.map.call(chips.querySelectorAll('.chip'), function(chip){ return chip.dataset.orderKey; }).join('\n');
+    }
+    var touchTimer = null, dragActive = false, pointerType = '';
+    function activateDrag(){
+      if(dragActive || !dragged) return;
+      dragActive = true; dragged.classList.add('dragging'); chips.classList.add('drag-active');
+      try{ dragged.setPointerCapture(pointerId); }catch(ignore){}
+    }
+    chips.addEventListener('pointerdown', function(e){
+      if(!document.body.classList.contains('editing')) return;
+      var chip = e.target.closest('.chip'); if(!chip) return;
+      dragged = chip; pointerId = e.pointerId; pointerType = e.pointerType;
+      startX = e.clientX; startY = e.clientY; startOrder = currentOrder(); dragActive = false;
+      if(pointerType !== 'mouse') touchTimer = setTimeout(activateDrag, 420);
     });
-    chips.addEventListener('dragover', function(e){
-      if(!dragged) return;
+    chips.addEventListener('pointermove', function(e){
+      if(!dragged || e.pointerId !== pointerId) return;
+      if(!dragActive && pointerType === 'mouse' && Math.hypot(e.clientX-startX, e.clientY-startY) > 6) activateDrag();
+      if(!dragActive) return;
       e.preventDefault();
-      var target = e.target.closest('.chip');
+      var target = document.elementFromPoint(e.clientX, e.clientY);
+      target = target && target.closest('.chip');
       if(!target || target === dragged || target.parentNode !== chips) return;
       var rect = target.getBoundingClientRect();
       var before = e.clientY < rect.top + rect.height / 2 || (Math.abs(e.clientY - (rect.top + rect.height / 2)) < rect.height / 3 && e.clientX < rect.left + rect.width / 2);
       chips.insertBefore(dragged, before ? target : target.nextSibling);
     });
-    chips.addEventListener('dragend', function(){
-      if(!dragged) return;
-      dragged.classList.remove('dragging'); chips.classList.remove('drag-active'); dragged = null;
-      suppressChipClickUntil = Date.now() + 400; saveCurrentOrder();
-    });
-
-    var touchChip = null, touchTimer = null, touchActive = false;
-    chips.addEventListener('pointerdown', function(e){
-      if(e.pointerType === 'mouse' || !document.body.classList.contains('editing')) return;
-      var chip = e.target.closest('.chip'); if(!chip) return;
-      touchChip = chip; touchActive = false;
-      touchTimer = setTimeout(function(){
-        touchActive = true; touchChip.classList.add('dragging'); chips.classList.add('drag-active');
-        try{ touchChip.setPointerCapture(e.pointerId); }catch(ignore){}
-      }, 420);
-    });
-    chips.addEventListener('pointermove', function(e){
-      if(!touchActive || !touchChip) return;
-      e.preventDefault();
-      var target = document.elementFromPoint(e.clientX, e.clientY);
-      target = target && target.closest('.chip');
-      if(!target || target === touchChip || target.parentNode !== chips) return;
-      var rect = target.getBoundingClientRect();
-      chips.insertBefore(touchChip, e.clientY < rect.top + rect.height / 2 ? target : target.nextSibling);
-    });
-    function finishTouch(){
+    function finishDrag(){
       clearTimeout(touchTimer);
-      if(touchActive && touchChip){
-        touchChip.classList.remove('dragging'); chips.classList.remove('drag-active');
-        suppressChipClickUntil = Date.now() + 500; saveCurrentOrder();
+      if(dragActive && dragged){
+        dragged.classList.remove('dragging'); chips.classList.remove('drag-active');
+        if(currentOrder() !== startOrder){ suppressChipClickUntil = Date.now() + 500; saveCurrentOrder(); }
       }
-      touchChip = null; touchActive = false;
+      dragged = null; pointerId = null; dragActive = false;
     }
-    chips.addEventListener('pointerup', finishTouch);
-    chips.addEventListener('pointercancel', finishTouch);
+    chips.addEventListener('pointerup', finishDrag);
+    chips.addEventListener('pointercancel', finishDrag);
   }
 
   function render(){
