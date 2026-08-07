@@ -218,11 +218,12 @@
       <div id="mCatNewWrap" style="display:none;margin-top:6px;">
         <input type="text" id="mCatNew" placeholder="输入新分类名" autocomplete="off" />
       </div>
-      <label>图标（可选：填写图片网址或选择本地图片；留空将自动获取）</label>
+      <label>图标（可选：填写图片网址或选择本地图片；留空显示首字）</label>
       <input type="text" id="mIcon" placeholder="https://…" autocomplete="off" />
       <input type="file" id="mIconFile" accept="image/*" style="margin-top:6px;font-size:12px;max-width:100%;" />
       <div style="margin-top:8px;display:flex;align-items:center;gap:8px;">
         <button type="button" id="mFetchIcon" class="btn-ghost" style="font-size:12px;padding:5px 12px;">一键获取图标</button>
+        <button type="button" id="mClearIcon" class="btn-ghost" style="font-size:12px;padding:5px 12px;">清除图标</button>
         <img id="mIconPreview" alt="" style="display:none;width:20px;height:20px;border-radius:3px;object-fit:contain;border:1px solid var(--border);" />
       </div>
     </div>
@@ -769,7 +770,19 @@
   var mNormal = document.getElementById('mNormal');
   var mErr = document.getElementById('mErr');
   var mIcon = document.getElementById('mIcon'), mIconFile = document.getElementById('mIconFile');
-  var editingUser = null, editingCfgId = null;
+  var editingUser = null, editingCfgId = null, iconDraft = '';
+
+  function setIconDraft(value){
+    iconDraft = typeof value === 'string' ? value : '';
+    if(/^data:image\//i.test(iconDraft)){
+      mIcon.value = '';
+      mIcon.placeholder = '已使用本地图标（可重新选择或清除）';
+    } else {
+      mIcon.value = iconDraft;
+      mIcon.placeholder = 'https://…';
+    }
+    updateIconPreview();
+  }
 
   function isNasForm(){
     return (editingCfgId && editingCfgId.indexOf('nas:') === 0) ||
@@ -783,7 +796,7 @@
   }
 
   function openModal(presetCat, opts){
-    mErr.textContent=''; mIcon.value=''; mIconFile.value=''; mInternal.value='';
+    mErr.textContent=''; mIcon.value=''; mIconFile.value=''; mInternal.value=''; iconDraft='';
     editingUser = null; editingCfgId = null;
     if (opts && opts.user) {
       editingUser = opts.user;
@@ -791,7 +804,7 @@
       mName.value = editingUser.name || '';
       mInternal.value = editingUser.internal || '';
       mUrl.value = editingUser.nas ? (editingUser.external || '') : (editingUser.url || '');
-      mIcon.value = editingUser.icon || '';
+      setIconDraft(editingUser.icon || '');
       presetCat = editingUser.nas ? 'NAS' : (editingUser.category || presetCat);
     } else if (opts && opts.cfgId) {
       editingCfgId = opts.cfgId;
@@ -799,7 +812,7 @@
       mName.value = opts.base.name || '';
       mInternal.value = opts.base.internal || '';
       mUrl.value = opts.base.external || opts.base.url || '';
-      mIcon.value = opts.base.icon || '';
+      setIconDraft(opts.base.icon || '');
       presetCat = opts.base.category || presetCat;
     } else {
       document.querySelector('.modal-title').textContent = '添加网址';
@@ -847,16 +860,44 @@
   mIconFile.addEventListener('change', function(){
     var f = mIconFile.files && mIconFile.files[0];
     if(!f) return;
-    var r = new FileReader();
-    r.onload = function(){ mIcon.value = r.result; updateIconPreview(); };
-    r.readAsDataURL(f);
+    if(!/^image\//i.test(f.type)){ mErr.textContent = '请选择图片文件'; return; }
+    mErr.textContent = '正在压缩图标…';
+    compressIconFile(f, function(result){ setIconDraft(result); mErr.textContent = ''; }, function(){
+      mErr.textContent = '图片处理失败，请换一张图片';
+    });
   });
-  mIcon.addEventListener('input', updateIconPreview);
+  function compressIconFile(file, onSuccess, onFail){
+    var reader = new FileReader();
+    reader.onerror = onFail;
+    reader.onload = function(){
+      var img = new Image();
+      img.onerror = onFail;
+      img.onload = function(){
+        var maxSide = 128;
+        var scale = Math.min(1, maxSide / Math.max(img.naturalWidth || 1, img.naturalHeight || 1));
+        var width = Math.max(1, Math.round(img.naturalWidth * scale));
+        var height = Math.max(1, Math.round(img.naturalHeight * scale));
+        var canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
+        var ctx = canvas.getContext('2d');
+        if(!ctx){ onFail(); return; }
+        ctx.drawImage(img, 0, 0, width, height);
+        var result = canvas.toDataURL('image/webp', .86);
+        if(!/^data:image\/webp/i.test(result)) result = canvas.toDataURL('image/png');
+        onSuccess(result);
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  }
+  mIcon.addEventListener('input', function(){ iconDraft = mIcon.value.trim(); updateIconPreview(); });
   function updateIconPreview(){
     var pv = document.getElementById('mIconPreview');
-    if(mIcon.value){ pv.src = mIcon.value; pv.style.display = 'inline-block'; }
-    else { pv.style.display = 'none'; }
+    if(iconDraft){ pv.src = iconDraft; pv.style.display = 'inline-block'; }
+    else { pv.removeAttribute('src'); pv.style.display = 'none'; }
   }
+  document.getElementById('mClearIcon').addEventListener('click', function(){
+    setIconDraft(''); mIconFile.value = ''; showToast('图标已清除，保存后生效');
+  });
   document.getElementById('mFetchIcon').addEventListener('click', function(){
     var button = this;
     var raw = mUrl.value.trim();
@@ -869,8 +910,7 @@
     button.disabled = true;
     button.textContent = '获取中…';
     fetchFaviconUrl(raw, function(source){
-      mIcon.value = source;
-      updateIconPreview();
+      setIconDraft(source);
       button.disabled = false;
       button.textContent = '一键获取图标';
       showToast('图标获取成功，保存后生效');
@@ -899,16 +939,16 @@
       if(!url){ mErr.textContent = '请填写网址'; return; }
       if(!/^https?:\/\//i.test(url)) url = 'https://' + url;
     }
-    var icon = mIcon.value.trim();
+    var icon = iconDraft.trim();
     var iconVal = icon ? icon : '';
 
     // 编辑「配置内网站」：写入本地覆盖，不改动 sites.js
     if (editingCfgId != null) {
       var ov = {};
       if (editingCfgId.indexOf('nas:') === 0){
-        ov.name = name; ov.internal = internal; ov.external = url; if(iconVal) ov.icon = iconVal;
+        ov.name = name; ov.internal = internal; ov.external = url; ov.icon = iconVal;
       } else {
-        ov.name = name; ov.url = url; ov.category = cat; if(iconVal) ov.icon = iconVal;
+        ov.name = name; ov.url = url; ov.category = cat; ov.icon = iconVal;
       }
       var overrides = loadOverrides();
       overrides[editingCfgId] = ov;
