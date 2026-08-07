@@ -37,6 +37,8 @@ docker compose up -d
 
 浏览器访问 `http://你的NAS-IP:8080`。挂载的 `config/sites.js` 和 `data/order.json` 保存在 NAS 本地，更新或重建容器不会覆盖个人网址和排序。
 
+为兼容旧版 Compose，镜像也会自动读取旧路径 `/usr/share/nginx/html/config/sites.js`；建议仍使用上面的新路径，以同时持久化拖动排序。
+
 如果不需要预置配置，可删除 `volumes` 两行，启动后直接在页面中添加网址。
 
 ## 主要功能

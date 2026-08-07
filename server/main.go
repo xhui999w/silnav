@@ -22,7 +22,7 @@ type orderData struct {
 type server struct {
 	publicDir string
 	dataFile  string
-	configFile string
+	configFiles []string
 	token     string
 	static    http.Handler
 }
@@ -37,7 +37,10 @@ func main() {
 	s := &server{
 		publicDir: publicDir,
 		dataFile:  filepath.Join(dataDir, "order.json"),
-		configFile: envOr("SILNAV_CONFIG_FILE", "/config/sites.js"),
+		configFiles: []string{
+			envOr("SILNAV_CONFIG_FILE", "/config/sites.js"),
+			"/usr/share/nginx/html/config/sites.js",
+		},
 		token:     os.Getenv("SILNAV_ADMIN_TOKEN"),
 		static:    http.FileServer(http.Dir(publicDir)),
 	}
@@ -80,12 +83,15 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 	}
 	if r.URL.Path == "/config/sites.js" {
-		if file, err := os.Open(s.configFile); err == nil {
-			defer file.Close()
-			if info, statErr := file.Stat(); statErr == nil && !info.IsDir() {
-				w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
-				http.ServeContent(w, r, "sites.js", info.ModTime(), file)
-				return
+		for _, configFile := range s.configFiles {
+			if file, err := os.Open(configFile); err == nil {
+				if info, statErr := file.Stat(); statErr == nil && !info.IsDir() {
+					w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+					http.ServeContent(w, r, "sites.js", info.ModTime(), file)
+					file.Close()
+					return
+				}
+				file.Close()
 			}
 		}
 	}
