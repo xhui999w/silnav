@@ -20,14 +20,15 @@ services:
     restart: unless-stopped
     ports:
       - "8080:80"
-    environment:
-      SILNAV_ADMIN_TOKEN: "请改成自己的长随机令牌"
+    # 可选：取消注释后，首次保存排序需要输入令牌
+    # environment:
+    #   SILNAV_ADMIN_TOKEN: "请改成自己的长随机令牌"
     volumes:
       - ./config:/config:ro
       - ./data:/data
 ```
 
-在 `compose.yml` 同级目录创建 `config` 和 `data` 文件夹，把自己的配置保存为 `config/sites.js`，并把管理令牌改成不易猜测的随机字符串：
+在 `compose.yml` 同级目录创建 `config` 和 `data` 文件夹，把自己的配置保存为 `config/sites.js`。如果页面会被不受信任的人访问，建议取消注释并设置管理令牌：
 
 ```bash
 mkdir -p config data
@@ -105,11 +106,12 @@ docker run -d \
   --name silnav \
   --restart unless-stopped \
   -p 8080:80 \
-  -e SILNAV_ADMIN_TOKEN='请改成自己的长随机令牌' \
   -v /你的NAS路径/config:/config:ro \
   -v /你的NAS路径/data:/data \
   ghcr.io/xhui999w/silnav:latest
 ```
+
+需要令牌保护时，在命令中额外加入 `-e SILNAV_ADMIN_TOKEN='请改成自己的长随机令牌'`。
 
 ## 数据与隐私
 
@@ -117,7 +119,7 @@ docker run -d \
 - 页面内新增和修改的数据默认保存在当前浏览器 `localStorage`
 - 使用导出功能可以备份或迁移浏览器中的本地配置
 - NAS 上的私人 `config/sites.js` 建议只读挂载，不要提交到公开仓库
-- 拖动排序保存在 `data/order.json`；写入接口由 `SILNAV_ADMIN_TOKEN` 保护
+- 拖动排序保存在 `data/order.json`；设置 `SILNAV_ADMIN_TOKEN` 后写入接口受令牌保护，不设置则直接保存
 
 ## 其他部署方式
 

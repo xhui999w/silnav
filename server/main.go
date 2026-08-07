@@ -110,6 +110,7 @@ func (s *server) handleOrder(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	switch r.Method {
 	case http.MethodGet:
+		w.Header().Set("X-Silnav-Auth-Required", fmt.Sprintf("%t", s.token != ""))
 		data, err := os.ReadFile(s.dataFile)
 		if errors.Is(err, os.ErrNotExist) {
 			writeJSON(w, http.StatusOK, orderData{Version: 1, Modes: map[string]map[string][]string{}})
@@ -126,14 +127,12 @@ func (s *server) handleOrder(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Write(data)
 	case http.MethodPut:
-		if s.token == "" {
-			writeError(w, http.StatusServiceUnavailable, "尚未设置 SILNAV_ADMIN_TOKEN")
-			return
-		}
-		provided := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if len(provided) != len(s.token) || subtle.ConstantTimeCompare([]byte(provided), []byte(s.token)) != 1 {
-			writeError(w, http.StatusUnauthorized, "管理令牌不正确")
-			return
+		if s.token != "" {
+			provided := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+			if len(provided) != len(s.token) || subtle.ConstantTimeCompare([]byte(provided), []byte(s.token)) != 1 {
+				writeError(w, http.StatusUnauthorized, "管理令牌不正确")
+				return
+			}
 		}
 		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 256<<10))
 		if err != nil {
