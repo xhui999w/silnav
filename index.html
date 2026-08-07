@@ -619,7 +619,7 @@
     });
     chips.addEventListener('pointermove', function(e){
       if(!dragged || e.pointerId !== pointerId) return;
-      if(!dragActive && pointerType === 'mouse' && Math.hypot(e.clientX-startX, e.clientY-startY) > 6) activateDrag();
+      if(!dragActive && Math.hypot(e.clientX-startX, e.clientY-startY) > (pointerType === 'mouse' ? 6 : 10)) activateDrag();
       if(!dragActive) return;
       e.preventDefault();
       var target = document.elementFromPoint(e.clientX, e.clientY);
@@ -1135,8 +1135,9 @@
   // 编辑模式总开关：默认卡片无按钮，点图标才浮现 ✎/×
   var editToggle = document.getElementById('editToggle');
   editToggle.addEventListener('click', function(){
-    document.body.classList.toggle('editing');
+    var editing = document.body.classList.toggle('editing');
     render();
+    showToast(editing ? '编辑模式：直接拖动图标即可排序' : '已退出编辑模式');
   });
 
   loadRemoteOrder();
