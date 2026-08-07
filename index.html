@@ -63,8 +63,8 @@
     position:relative;border:1px solid var(--border);border-radius:12px;text-decoration:none;color:var(--text);font-size:13px;font-weight:500;
     overflow-wrap:anywhere;box-shadow:var(--shadow);transition:border-color .15s,background-color .15s,box-shadow .15s;}
   .chip:hover{border-color:#b9cff3;background:#fbfdff;box-shadow:0 3px 10px rgba(16,24,40,.07);}
-  body.editing .chip{cursor:grab;touch-action:none;user-select:none;}
-  body.editing .chip:active{cursor:grabbing;}
+  .chip{cursor:grab;-webkit-touch-callout:none;}
+  .chip:active{cursor:grabbing;}
   .chip.dragging{opacity:.45;border-color:var(--accent);}
   .chips.drag-active{outline:2px dashed var(--accent);outline-offset:5px;border-radius:10px;}
   .chip img{width:44px;height:44px;flex:0 0 auto;border-radius:11px;object-fit:contain;pointer-events:none;-webkit-user-drag:none;user-select:none;}
@@ -599,7 +599,6 @@
       showToast('已删除「' + (item.name || item.url) + '」');
     });
     a.appendChild(del);
-    a.addEventListener('contextmenu', function(e){ if(document.body.classList.contains('editing')) e.preventDefault(); });
     return a;
   }
 
@@ -615,15 +614,17 @@
       try{ dragged.setPointerCapture(pointerId); }catch(ignore){}
     }
     chips.addEventListener('pointerdown', function(e){
-      if(!document.body.classList.contains('editing')) return;
       var chip = e.target.closest('.chip'); if(!chip) return;
+      if(e.target.closest('.chip-edit,.chip-del')) return;
       dragged = chip; pointerId = e.pointerId; pointerType = e.pointerType;
       startX = e.clientX; startY = e.clientY; dragActive = false;
-      if(pointerType !== 'mouse') touchTimer = setTimeout(activateDrag, 420);
+      if(pointerType !== 'mouse') touchTimer = setTimeout(activateDrag, 180);
     });
     chips.addEventListener('pointermove', function(e){
       if(!dragged || e.pointerId !== pointerId) return;
-      if(!dragActive && Math.hypot(e.clientX-startX, e.clientY-startY) > (pointerType === 'mouse' ? 6 : 10)) activateDrag();
+      var dx = e.clientX-startX, dy = e.clientY-startY;
+      if(!dragActive && pointerType === 'mouse' && Math.hypot(dx,dy) > 6) activateDrag();
+      if(!dragActive && pointerType !== 'mouse' && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy)*1.2) activateDrag();
       if(!dragActive) return;
       e.preventDefault();
       var target = document.elementFromPoint(e.clientX, e.clientY);
@@ -643,6 +644,7 @@
     }
     chips.addEventListener('pointerup', finishDrag);
     chips.addEventListener('pointercancel', finishDrag);
+    chips.addEventListener('contextmenu', function(e){ if(dragActive) e.preventDefault(); });
   }
 
   function render(){
@@ -755,7 +757,7 @@
     if(!total){
       main.innerHTML = '<div class="empty">没有匹配的网址</div>';
     }
-    document.getElementById('hint').innerHTML = '点击分类右侧的 + 可添加网址；点顶部「编辑」后，链接上会显示 ✎ 修改 / × 删除（均仅保存在本浏览器）。<span id="resetLocal" style="color:var(--accent);cursor:pointer;margin-left:6px;">恢复默认</span>';
+    document.getElementById('hint').innerHTML = '直接按住网址拖动即可排序；点顶部「编辑」后可修改或删除（网址修改仅保存在本浏览器）。<span id="resetLocal" style="color:var(--accent);cursor:pointer;margin-left:6px;">恢复默认</span>';
     var rl = document.getElementById('resetLocal');
     if(rl) rl.addEventListener('click', function(){
       if(confirm('确定清除本机对网址的所有修改/删除，恢复 sites.js 默认？')){
@@ -1141,7 +1143,7 @@
   editToggle.addEventListener('click', function(){
     var editing = document.body.classList.toggle('editing');
     render();
-    showToast(editing ? '编辑模式：直接拖动图标即可排序' : '已退出编辑模式');
+    showToast(editing ? '编辑模式：可修改或删除网址' : '已退出编辑模式');
   });
 
   loadRemoteOrder();
