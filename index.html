@@ -500,6 +500,26 @@
   function stateHasChanges(state){
     return state.userLinks.length || Object.keys(state.overrides).length || state.hidden.length;
   }
+  function mergeStates(remote, local){
+    var merged = {version:DATA_VERSION, userLinks:remote.userLinks.slice(), overrides:{}, hidden:remote.hidden.slice()};
+    var userIndex = {};
+    merged.userLinks.forEach(function(link, index){ userIndex[String(link.id)] = index; });
+    local.userLinks.forEach(function(link){
+      var key = String(link.id);
+      if(Object.prototype.hasOwnProperty.call(userIndex, key)) merged.userLinks[userIndex[key]] = link;
+      else { userIndex[key] = merged.userLinks.length; merged.userLinks.push(link); }
+    });
+    Object.keys(remote.overrides).forEach(function(id){ merged.overrides[id] = Object.assign({}, remote.overrides[id]); });
+    Object.keys(local.overrides).forEach(function(id){
+      var before = merged.overrides[id] || {};
+      var incoming = local.overrides[id] || {};
+      var combined = Object.assign({}, before, incoming);
+      if(incoming.icon === '' && before.icon) combined.icon = before.icon;
+      merged.overrides[id] = combined;
+    });
+    local.hidden.forEach(function(id){ if(merged.hidden.indexOf(id) < 0) merged.hidden.push(id); });
+    return merged;
+  }
   function cacheSharedState(){
     if(!sharedState) return;
     safeWrite(STORAGE_KEYS.userLinks, sharedState.userLinks);
@@ -542,13 +562,10 @@
       if(!data || data.version !== DATA_VERSION || !validUserLinks(data.userLinks) || !validOverrides(data.overrides) || !validHidden(data.hidden)){
         throw new Error('数据格式错误');
       }
-      if(!stateHasChanges(data) && stateHasChanges(existing)){
-        sharedState = existing;
-        saveSharedState(true);
-      } else {
-        sharedState = data;
-        cacheSharedState();
-      }
+      sharedState = mergeStates(data, existing);
+      var needsMigration = JSON.stringify(sharedState) !== JSON.stringify(data);
+      cacheSharedState();
+      if(needsMigration) saveSharedState(true);
       render();
     }).catch(function(error){
       sharedState = existing;
