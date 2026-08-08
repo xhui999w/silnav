@@ -486,12 +486,83 @@
   }
   initDataVersion();
 
-  function loadUserLinks(){ return safeRead(STORAGE_KEYS.userLinks, [], validUserLinks); }
-  function saveUserLinks(arr){ return safeWrite(STORAGE_KEYS.userLinks, arr); }
-  function loadOverrides(){ return safeRead(STORAGE_KEYS.overrides, {}, validOverrides); }
-  function saveOverrides(o){ return safeWrite(STORAGE_KEYS.overrides, o); }
-  function loadHidden(){ return safeRead(STORAGE_KEYS.hidden, [], validHidden); }
-  function saveHidden(a){ return safeWrite(STORAGE_KEYS.hidden, a); }
+  var sharedState = null;
+  var stateAuthRequired = true;
+  var stateSaveTimer = null;
+  function localState(){
+    return {
+      version:DATA_VERSION,
+      userLinks:safeRead(STORAGE_KEYS.userLinks, [], validUserLinks),
+      overrides:safeRead(STORAGE_KEYS.overrides, {}, validOverrides),
+      hidden:safeRead(STORAGE_KEYS.hidden, [], validHidden)
+    };
+  }
+  function stateHasChanges(state){
+    return state.userLinks.length || Object.keys(state.overrides).length || state.hidden.length;
+  }
+  function cacheSharedState(){
+    if(!sharedState) return;
+    safeWrite(STORAGE_KEYS.userLinks, sharedState.userLinks);
+    safeWrite(STORAGE_KEYS.overrides, sharedState.overrides);
+    safeWrite(STORAGE_KEYS.hidden, sharedState.hidden);
+  }
+  function persistSharedState(token, migration){
+    fetch('/api/state', {
+      method:'PUT',
+      headers:{'Content-Type':'application/json', 'Authorization':'Bearer ' + (token || '')},
+      body:JSON.stringify(sharedState)
+    }).then(function(response){
+      if(response.ok) return response.json();
+      return response.json().catch(function(){ return {}; }).then(function(body){
+        var error = new Error(body.error || ('HTTP ' + response.status)); error.status = response.status; throw error;
+      });
+    }).then(function(){
+      if(migration) showToast('本机原有网址和图标已迁移到 NAS');
+    }).catch(function(error){
+      if(error.status === 401) safeRemove('silnav_admin_token');
+      showToast('NAS 数据保存失败：' + error.message, 'error');
+    });
+  }
+  function saveSharedState(migration){
+    clearTimeout(stateSaveTimer);
+    stateSaveTimer = setTimeout(function(){
+      if(!stateAuthRequired){ persistSharedState('', migration); return; }
+      var token = safeGetText('silnav_admin_token');
+      if(token){ persistSharedState(token, migration); return; }
+      requestAdminToken(function(value){ persistSharedState(value, migration); });
+    }, migration ? 0 : 120);
+  }
+  function loadRemoteState(){
+    var existing = localState();
+    return fetch('/api/state', {cache:'no-store'}).then(function(response){
+      if(!response.ok) throw new Error('HTTP ' + response.status);
+      stateAuthRequired = response.headers.get('X-Silnav-Auth-Required') !== 'false';
+      return response.json();
+    }).then(function(data){
+      if(!data || data.version !== DATA_VERSION || !validUserLinks(data.userLinks) || !validOverrides(data.overrides) || !validHidden(data.hidden)){
+        throw new Error('数据格式错误');
+      }
+      if(!stateHasChanges(data) && stateHasChanges(existing)){
+        sharedState = existing;
+        saveSharedState(true);
+      } else {
+        sharedState = data;
+        cacheSharedState();
+      }
+      render();
+    }).catch(function(error){
+      sharedState = existing;
+      showToast('无法读取 NAS 网址数据，暂用本机数据：' + error.message, 'error');
+      render();
+    });
+  }
+  function ensureSharedState(){ if(!sharedState) sharedState = localState(); return sharedState; }
+  function loadUserLinks(){ return ensureSharedState().userLinks; }
+  function saveUserLinks(arr){ ensureSharedState().userLinks = arr; cacheSharedState(); saveSharedState(false); return true; }
+  function loadOverrides(){ return ensureSharedState().overrides; }
+  function saveOverrides(o){ ensureSharedState().overrides = o; cacheSharedState(); saveSharedState(false); return true; }
+  function loadHidden(){ return ensureSharedState().hidden; }
+  function saveHidden(a){ ensureSharedState().hidden = a; cacheSharedState(); saveSharedState(false); return true; }
 
   // ---------- 自动识别分类：根据网址域名匹配已有链接 ----------
   function regDomain(host){
@@ -690,7 +761,7 @@
       });
     });
 
-    // 用户自行添加的链接（localStorage）
+    // 用户自行添加的链接（Docker 版同步到 NAS，静态部署回退到 localStorage）
     uls.forEach(function(l){
       var id = l.id;
       if (hidden.indexOf('user:' + id) >= 0) return;
@@ -757,11 +828,13 @@
     if(!total){
       main.innerHTML = '<div class="empty">没有匹配的网址</div>';
     }
-    document.getElementById('hint').innerHTML = '直接按住网址拖动即可排序；点顶部「编辑」后可修改或删除（网址修改仅保存在本浏览器）。<span id="resetLocal" style="color:var(--accent);cursor:pointer;margin-left:6px;">恢复默认</span>';
+    document.getElementById('hint').innerHTML = '直接按住网址拖动即可排序；点顶部「编辑」后可修改或删除（网址与图标保存到 NAS）。<span id="resetLocal" style="color:var(--accent);cursor:pointer;margin-left:6px;">恢复默认</span>';
     var rl = document.getElementById('resetLocal');
     if(rl) rl.addEventListener('click', function(){
       if(confirm('确定清除本机对网址的所有修改/删除，恢复 sites.js 默认？')){
         safeRemove(STORAGE_KEYS.userLinks); safeRemove(STORAGE_KEYS.overrides); safeRemove(STORAGE_KEYS.hidden);
+        sharedState = {version:DATA_VERSION, userLinks:[], overrides:{}, hidden:[]};
+        saveSharedState(false);
         render(); showToast('已恢复默认配置');
       }
     });
@@ -1046,6 +1119,8 @@
       localStorage.setItem(STORAGE_KEYS.hidden, JSON.stringify(data.hidden));
       localStorage.setItem(STORAGE_KEYS.theme, data.theme);
       localStorage.setItem(STORAGE_KEYS.version, String(DATA_VERSION));
+      sharedState = {version:DATA_VERSION, userLinks:data.userLinks, overrides:data.overrides, hidden:data.hidden};
+      saveSharedState(false);
     } catch(e){
       keys.forEach(function(key){
         try {
@@ -1098,7 +1173,7 @@
       try {
         var data = validateImportData(JSON.parse(reader.result));
         var changed = data.userLinks.length + Object.keys(data.overrides).length + data.hidden.length;
-        if(!confirm('导入会覆盖当前浏览器中的本地配置，共 ' + changed + ' 项变更。确定继续吗？')) return;
+        if(!confirm('导入会覆盖 NAS 中的当前网址配置，共 ' + changed + ' 项变更。确定继续吗？')) return;
         importData(data);
         applyTheme(data.theme);
         document.body.classList.remove('editing');
@@ -1147,6 +1222,7 @@
   });
 
   loadRemoteOrder();
+  loadRemoteState();
   render();
 })();
 </script>

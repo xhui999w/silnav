@@ -1,6 +1,6 @@
 # Silnav 静航
 
-极简、快速的个人网址导航。前端保持纯 HTML/CSS/JavaScript，无数据库、无账号系统；Docker 版附带一个轻量配置接口，用于把拖动排序保存到 NAS。
+极简、快速的个人网址导航。前端保持纯 HTML/CSS/JavaScript，无数据库、无账号系统；Docker 版附带轻量数据接口，用于把网址、图标和拖动排序保存到 NAS。
 
 ## Docker Compose 安装
 
@@ -36,7 +36,7 @@ docker compose pull
 docker compose up -d
 ```
 
-浏览器访问 `http://你的NAS-IP:8080`。挂载的 `config/sites.js` 和 `data/order.json` 保存在 NAS 本地，更新或重建容器不会覆盖个人网址和排序。
+浏览器访问 `http://你的NAS-IP:8080`。挂载的 `config/sites.js`、`data/state.json` 和 `data/order.json` 保存在 NAS 本地，更新或重建容器不会覆盖个人网址、图标和排序。
 
 为兼容旧版 Compose，镜像也会自动读取旧路径 `/usr/share/nginx/html/config/sites.js`；建议仍使用上面的新路径，以同时持久化拖动排序。
 
@@ -116,10 +116,12 @@ docker run -d \
 ## 数据与隐私
 
 - 公开仓库和容器镜像不包含作者的个人网址、内网 IP 或端口
-- 页面内新增和修改的数据默认保存在当前浏览器 `localStorage`
-- 使用导出功能可以备份或迁移浏览器中的本地配置
+- Docker 版会把页面内新增、修改、删除的网址和图标保存到 NAS 的 `data/state.json`
+- 各电脑访问同一个 Silnav 容器时共享网址、图标和隐藏状态；浏览器本地数据仅用于离线回退与旧版迁移
+- 升级后若 NAS 尚无 `state.json`，首次使用带有旧版本地数据的浏览器访问时会自动迁移到 NAS
+- 使用导出功能可以额外备份或迁移配置
 - NAS 上的私人 `config/sites.js` 建议只读挂载，不要提交到公开仓库
-- 拖动排序保存在 `data/order.json`；设置 `SILNAV_ADMIN_TOKEN` 后写入接口受令牌保护，不设置则直接保存
+- 拖动排序保存在 `data/order.json`；网址与图标保存在 `data/state.json`；设置 `SILNAV_ADMIN_TOKEN` 后写入接口受令牌保护，不设置则直接保存
 
 ## 其他部署方式
 

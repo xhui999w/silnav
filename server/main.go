@@ -19,9 +19,17 @@ type orderData struct {
 	Modes   map[string]map[string][]string `json:"modes"`
 }
 
+type stateData struct {
+	Version   int                       `json:"version"`
+	UserLinks []map[string]any          `json:"userLinks"`
+	Overrides map[string]map[string]any `json:"overrides"`
+	Hidden    []string                  `json:"hidden"`
+}
+
 type server struct {
 	publicDir string
 	dataFile  string
+	stateFile string
 	configFiles []string
 	token     string
 	static    http.Handler
@@ -37,6 +45,7 @@ func main() {
 	s := &server{
 		publicDir: publicDir,
 		dataFile:  filepath.Join(dataDir, "order.json"),
+		stateFile: filepath.Join(dataDir, "state.json"),
 		configFiles: []string{
 			envOr("SILNAV_CONFIG_FILE", "/config/sites.js"),
 			"/usr/share/nginx/html/config/sites.js",
@@ -48,6 +57,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "ok\n") })
 	mux.HandleFunc("/api/order", s.handleOrder)
+	mux.HandleFunc("/api/state", s.handleState)
 	mux.Handle("/", s)
 
 	httpServer := &http.Server{
@@ -105,6 +115,102 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.static.ServeHTTP(w, r)
 }
 
+func (s *server) authorized(r *http.Request) bool {
+	if s.token == "" {
+		return true
+	}
+	provided := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	return len(provided) == len(s.token) && subtle.ConstantTimeCompare([]byte(provided), []byte(s.token)) == 1
+}
+
+func writeAtomic(path string, value any) error {
+	encoded, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, append(encoded, '\n'), 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+func (s *server) handleState(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Silnav-Auth-Required", fmt.Sprintf("%t", s.token != ""))
+	switch r.Method {
+	case http.MethodGet:
+		data, err := os.ReadFile(s.stateFile)
+		if errors.Is(err, os.ErrNotExist) {
+			writeJSON(w, http.StatusOK, stateData{Version: 1, UserLinks: []map[string]any{}, Overrides: map[string]map[string]any{}, Hidden: []string{}})
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "无法读取网址数据")
+			return
+		}
+		var state stateData
+		if err := json.Unmarshal(data, &state); err != nil || !validState(state) {
+			writeError(w, http.StatusInternalServerError, "网址数据格式错误")
+			return
+		}
+		_, _ = w.Write(data)
+	case http.MethodPut:
+		if !s.authorized(r) {
+			writeError(w, http.StatusUnauthorized, "管理令牌不正确")
+			return
+		}
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 8<<20))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "网址数据过大")
+			return
+		}
+		var state stateData
+		if err := json.Unmarshal(body, &state); err != nil || !validState(state) {
+			writeError(w, http.StatusBadRequest, "网址数据格式错误")
+			return
+		}
+		if err := writeAtomic(s.stateFile, state); err != nil {
+			writeError(w, http.StatusInternalServerError, "无法保存网址数据")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	default:
+		w.Header().Set("Allow", "GET, PUT")
+		writeError(w, http.StatusMethodNotAllowed, "不支持此请求方法")
+	}
+}
+
+func validState(state stateData) bool {
+	if state.Version != 1 || state.UserLinks == nil || state.Overrides == nil || state.Hidden == nil {
+		return false
+	}
+	if len(state.UserLinks) > 5000 || len(state.Overrides) > 5000 || len(state.Hidden) > 5000 {
+		return false
+	}
+	for _, link := range state.UserLinks {
+		if len(link) > 12 {
+			return false
+		}
+	}
+	for id, override := range state.Overrides {
+		if id == "" || len(id) > 1000 || len(override) > 12 {
+			return false
+		}
+	}
+	for _, id := range state.Hidden {
+		if id == "" || len(id) > 1000 {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *server) handleOrder(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
@@ -127,12 +233,9 @@ func (s *server) handleOrder(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Write(data)
 	case http.MethodPut:
-		if s.token != "" {
-			provided := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-			if len(provided) != len(s.token) || subtle.ConstantTimeCompare([]byte(provided), []byte(s.token)) != 1 {
-				writeError(w, http.StatusUnauthorized, "管理令牌不正确")
-				return
-			}
+		if !s.authorized(r) {
+			writeError(w, http.StatusUnauthorized, "管理令牌不正确")
+			return
 		}
 		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 256<<10))
 		if err != nil {
@@ -144,14 +247,7 @@ func (s *server) handleOrder(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "排序数据格式错误")
 			return
 		}
-		encoded, _ := json.MarshalIndent(order, "", "  ")
-		tmp := s.dataFile + ".tmp"
-		if err := os.WriteFile(tmp, append(encoded, '\n'), 0o600); err != nil {
-			writeError(w, http.StatusInternalServerError, "无法写入排序配置")
-			return
-		}
-		if err := os.Rename(tmp, s.dataFile); err != nil {
-			os.Remove(tmp)
+		if err := writeAtomic(s.dataFile, order); err != nil {
 			writeError(w, http.StatusInternalServerError, "无法保存排序配置")
 			return
 		}
