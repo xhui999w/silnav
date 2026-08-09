@@ -5,7 +5,9 @@ COPY server ./server
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /silnav ./server
 
 FROM alpine:3.21
-RUN addgroup -S silnav && adduser -S -G silnav silnav
+RUN apk add --no-cache ca-certificates \
+    && addgroup -S silnav \
+    && adduser -S -G silnav silnav
 WORKDIR /app
 COPY --from=build /silnav /usr/local/bin/silnav
 COPY index.html sites.js ./public/
