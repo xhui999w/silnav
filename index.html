@@ -70,14 +70,7 @@
   .chip img{width:44px;height:44px;flex:0 0 auto;border-radius:11px;object-fit:contain;pointer-events:none;-webkit-user-drag:none;user-select:none;}
   .txt-icon{width:44px;height:44px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;font-size:20px;
     font-weight:600;color:var(--accent);background:var(--accent-bg);border-radius:11px;}
-  .chip > span:not(.txt-icon):not(.chip-edit):not(.chip-del){width:100%;line-height:1.3;}
-  .chip-del{position:absolute;top:7px;right:7px;color:var(--muted);font-size:15px;line-height:1;cursor:pointer;padding:2px;}
-  .chip-del:hover{color:#ef4444;}
-  .chip-edit{position:absolute;top:7px;right:27px;color:var(--accent);font-size:13px;line-height:1;cursor:pointer;padding:2px;}
-  .chip-edit:hover{color:#1d4ed8;}
-  /* 编辑按钮默认隐藏，仅「编辑模式」下显示 */
-  .chip-edit,.chip-del{display:none;}
-  body.editing .chip-edit,body.editing .chip-del{display:inline;}
+  .chip > span:not(.txt-icon){width:100%;line-height:1.3;}
   /* 顶部工具组：两个图标按钮成一组，紧挨右对齐、不散开 */
   .tools{position:relative;display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:max-content;}
   .icon-btn{width:38px;height:38px;border:1px solid var(--border);background:var(--card);box-shadow:var(--shadow);
@@ -97,8 +90,6 @@
     background:#1f2937;color:#fff;font-size:12px;padding:5px 9px;border-radius:6px;opacity:0;pointer-events:none;
     transition:opacity .15s;z-index:40;}
   .icon-btn:hover::after{opacity:1;}
-  /* 编辑模式：编辑按钮高亮 */
-  body.editing .icon-btn.edit-btn{background:var(--accent);color:#fff;border-color:var(--accent);}
   .manage-menu{position:absolute;top:calc(100% + 8px);right:0;z-index:45;width:150px;padding:5px;
     background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:0 10px 30px rgba(16,24,40,.12);}
   .manage-menu.hidden{display:none;}
@@ -157,7 +148,7 @@
     border-radius:10px;box-shadow:none;}
   body.style-minimal .chip:hover{background:var(--accent-bg);border-color:transparent;box-shadow:none;}
   body.style-minimal .chip img,body.style-minimal .txt-icon{width:48px;height:48px;border-radius:12px;}
-  body.style-minimal .chip > span:not(.txt-icon):not(.chip-edit):not(.chip-del){white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  body.style-minimal .chip > span:not(.txt-icon){white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   @media (max-width:480px){
     body.style-minimal .chips{grid-template-columns:repeat(4,minmax(0,1fr));gap:8px 2px;}
     body.style-minimal .chip{min-height:84px;padding:7px 2px 5px;font-size:12px;}
@@ -180,9 +171,6 @@
       <button type="button" class="icon-btn net-toggle" id="netToggle" data-tip="切换内/外网">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
         <span class="net-label" id="netLabel">外网</span>
-      </button>
-      <button type="button" class="icon-btn edit-btn" id="editToggle" data-tip="编辑 / 完成">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
       </button>
       <button type="button" class="icon-btn" id="toggleTheme" data-tip="切换主题：深色" aria-label="切换主题：深色">
         <svg class="stroke-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18h1.2a1.8 1.8 0 0 0 0-3.6h-.7a1.5 1.5 0 0 1 0-3H15A6 6 0 0 0 15 3h-3Z"/><circle cx="7.5" cy="10" r=".8"/><circle cx="9" cy="6.8" r=".8"/><circle cx="13" cy="6.2" r=".8"/></svg>
@@ -231,6 +219,7 @@
     </div>
     <div class="err" id="mErr"></div>
     <div class="modal-actions">
+      <button class="btn-ghost" id="mDelete" style="margin-right:auto;color:#ef4444;display:none;">删除</button>
       <button class="btn-ghost" id="mCancel">取消</button>
       <button class="btn-primary" id="mSave">保存</button>
     </div>
@@ -655,13 +644,13 @@
     a.dataset.orderKey = item.orderKey;
     a.draggable = false;
     a.title = (item.name || item.url) + ' — ' + item.url;
-    // 编辑模式下点卡片任意位置都直接打开「修改」，不再跳转网站
     a.addEventListener('click', function(e){
       if(Date.now() < suppressChipClickUntil){ e.preventDefault(); return; }
-      if(document.body.classList.contains('editing')){
-        e.preventDefault();
-        openEditModal(item);
-      }
+    });
+    a.addEventListener('contextmenu', function(e){
+      e.preventDefault(); e.stopPropagation();
+      if(Date.now() < suppressChipClickUntil) return;
+      openEditModal(item);
     });
     var initial = (item.name || '?').charAt(0);
     var txtIcon = document.createElement('span'); txtIcon.className = 'txt-icon'; txtIcon.textContent = initial;
@@ -678,24 +667,6 @@
     var span = document.createElement('span'); span.textContent = item.name || item.url;
     a.appendChild(span);
 
-    var edit = document.createElement('span'); edit.className = 'chip-edit'; edit.textContent = '✎';
-    edit.title = '修改';
-    edit.addEventListener('click', function(e){
-      e.preventDefault(); e.stopPropagation();
-      openEditModal(item);
-    });
-    a.appendChild(edit);
-    var del = document.createElement('span'); del.className = 'chip-del'; del.textContent = '×';
-    del.title = '删除';
-    del.addEventListener('click', function(e){
-      e.preventDefault(); e.stopPropagation();
-      if(!confirm('确定删除「' + (item.name || item.url) + '」吗？')) return;
-      if (item.isUser) saveUserLinks(loadUserLinks().filter(function(x){ return x.id !== item.uid; }));
-      else { var h = loadHidden(); if(h.indexOf(item.uid) < 0){ h.push(item.uid); saveHidden(h); } }
-      render();
-      showToast('已删除「' + (item.name || item.url) + '」');
-    });
-    a.appendChild(del);
     return a;
   }
 
@@ -712,7 +683,6 @@
     }
     chips.addEventListener('pointerdown', function(e){
       var chip = e.target.closest('.chip'); if(!chip) return;
-      if(e.target.closest('.chip-edit,.chip-del')) return;
       dragged = chip; pointerId = e.pointerId; pointerType = e.pointerType;
       startX = e.clientX; startY = e.clientY; dragActive = false;
       if(pointerType !== 'mouse') touchTimer = setTimeout(activateDrag, 180);
@@ -854,7 +824,7 @@
     if(!total){
       main.innerHTML = '<div class="empty">没有匹配的网址</div>';
     }
-    document.getElementById('hint').innerHTML = '直接按住网址拖动即可排序；点顶部「编辑」后可修改或删除（网址与图标保存到 NAS）。<span id="resetLocal" style="color:var(--accent);cursor:pointer;margin-left:6px;">恢复默认</span>';
+    document.getElementById('hint').innerHTML = '左键打开，按住拖动排序，鼠标右键直接编辑（网址与图标保存到 NAS）。<span id="resetLocal" style="color:var(--accent);cursor:pointer;margin-left:6px;">恢复默认</span>';
     var rl = document.getElementById('resetLocal');
     if(rl) rl.addEventListener('click', function(){
       if(confirm('确定清除本机对网址的所有修改/删除，恢复 sites.js 默认？')){
@@ -875,6 +845,7 @@
   var mNormal = document.getElementById('mNormal');
   var mErr = document.getElementById('mErr');
   var mIcon = document.getElementById('mIcon'), mIconFile = document.getElementById('mIconFile');
+  var mDelete = document.getElementById('mDelete');
   var editingUser = null, editingCfgId = null, iconDraft = '';
 
   function setIconDraft(value){
@@ -949,11 +920,23 @@
     }
     updateNasFields();
     updateIconPreview();
+    mDelete.style.display = (editingUser != null || editingCfgId != null) ? 'inline-block' : 'none';
     modal.classList.remove('hidden'); mName.focus();
   }
   function closeModal(){ modal.classList.add('hidden'); }
 
   document.getElementById('mCancel').addEventListener('click', closeModal);
+  mDelete.addEventListener('click', function(){
+    var name = mName.value.trim() || '该网址';
+    if(!confirm('确定删除「' + name + '」吗？')) return;
+    if(editingUser != null){
+      saveUserLinks(loadUserLinks().filter(function(link){ return link.id !== editingUser.id; }));
+    } else if(editingCfgId != null){
+      var hidden = loadHidden();
+      if(hidden.indexOf(editingCfgId) < 0){ hidden.push(editingCfgId); saveHidden(hidden); }
+    }
+    closeModal(); render(); showToast('已删除「' + name + '」');
+  });
   modal.addEventListener('click', function(e){ if(e.target === modal) closeModal(); });
   mUrl.addEventListener('input', autoDetectCat);
   mCatSelect.addEventListener('change', function(){
@@ -1239,7 +1222,6 @@
         if(!confirm('导入会覆盖 NAS 中的当前网址配置，共 ' + changed + ' 项变更。确定继续吗？')) return;
         importData(data);
         applyTheme(data.theme);
-        document.body.classList.remove('editing');
         render(); showToast('配置导入成功，已立即生效');
       } catch(e){ showToast('导入失败：' + e.message, 'error'); }
     };
@@ -1274,14 +1256,6 @@
     mode = (mode === 'internal') ? 'external' : 'internal';
     syncNetToggle();
     render();
-  });
-
-  // 编辑模式总开关：默认卡片无按钮，点图标才浮现 ✎/×
-  var editToggle = document.getElementById('editToggle');
-  editToggle.addEventListener('click', function(){
-    var editing = document.body.classList.toggle('editing');
-    render();
-    showToast(editing ? '编辑模式：可修改或删除网址' : '已退出编辑模式');
   });
 
   loadRemoteOrder();
