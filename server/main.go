@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -207,10 +208,18 @@ func allowedIconHost(host string) bool {
 	return false
 }
 
+func safeIconURL(target *url.URL) bool {
+	if target == nil || (target.Scheme != "https" && target.Scheme != "http") || target.Hostname() == "" { return false }
+	if allowedIconHost(target.Hostname()) { return true }
+	ips, err := net.LookupIP(target.Hostname()); if err != nil || len(ips) == 0 { return false }
+	for _, ip := range ips { if ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() { return false } }
+	return true
+}
+
 func (s *server) handleIcon(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet { writeError(w, http.StatusMethodNotAllowed, "不支持此请求方法"); return }
-	target, err := url.Parse(r.URL.Query().Get("url")); if err != nil || target.Scheme != "https" || !allowedIconHost(target.Hostname()) { writeError(w, http.StatusBadRequest, "图标来源不受支持"); return }
-	client := &http.Client{Timeout:8*time.Second, CheckRedirect:func(req *http.Request, via []*http.Request) error { if len(via)>3 || !allowedIconHost(req.URL.Hostname()) { return errors.New("redirect rejected") }; return nil }}
+	target, err := url.Parse(r.URL.Query().Get("url")); if err != nil || !safeIconURL(target) { writeError(w, http.StatusBadRequest, "图标来源不受支持"); return }
+	client := &http.Client{Timeout:8*time.Second, CheckRedirect:func(req *http.Request, via []*http.Request) error { if len(via)>3 || !safeIconURL(req.URL) { return errors.New("redirect rejected") }; return nil }}
 	resp, err := client.Get(target.String()); if err != nil { writeError(w, http.StatusBadGateway, "图标获取失败"); return }
 	defer resp.Body.Close(); if resp.StatusCode < 200 || resp.StatusCode >= 300 { writeError(w, http.StatusBadGateway, "图标获取失败"); return }
 	contentType := resp.Header.Get("Content-Type"); if !strings.HasPrefix(contentType, "image/") { writeError(w, http.StatusBadGateway, "返回内容不是图片"); return }

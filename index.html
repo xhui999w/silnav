@@ -398,7 +398,9 @@
     var host;
     try { host = new URL(url).hostname; } catch(e){ onFail(); return; }
     if(!host || isIpOrLocal(host)){ onFail(); return; }
+    var parsed = new URL(url);
     var sources = [
+      parsed.origin + '/favicon.ico',
       'https://api.iowen.cn/favicon/' + host + '.png',
       'https://favicon.im/' + encodeURIComponent(host),
       'https://icons.duckduckgo.com/ip3/' + host + '.ico',
