@@ -8,8 +8,10 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -21,6 +23,7 @@ type orderData struct {
 
 type stateData struct {
 	Version   int                       `json:"version"`
+	Revision  int64                     `json:"revision"`
 	UserLinks []map[string]any          `json:"userLinks"`
 	Overrides map[string]map[string]any `json:"overrides"`
 	Hidden    []string                  `json:"hidden"`
@@ -30,6 +33,7 @@ type server struct {
 	publicDir string
 	dataFile  string
 	stateFile string
+	backupDir string
 	configFiles []string
 	token     string
 	static    http.Handler
@@ -46,6 +50,7 @@ func main() {
 		publicDir: publicDir,
 		dataFile:  filepath.Join(dataDir, "order.json"),
 		stateFile: filepath.Join(dataDir, "state.json"),
+		backupDir: filepath.Join(dataDir, "backups"),
 		configFiles: []string{
 			envOr("SILNAV_CONFIG_FILE", "/config/sites.js"),
 			"/usr/share/nginx/html/config/sites.js",
@@ -58,6 +63,9 @@ func main() {
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "ok\n") })
 	mux.HandleFunc("/api/order", s.handleOrder)
 	mux.HandleFunc("/api/state", s.handleState)
+	mux.HandleFunc("/api/backups", s.handleBackups)
+	mux.HandleFunc("/api/restore", s.handleRestore)
+	mux.HandleFunc("/api/icon", s.handleIcon)
 	mux.Handle("/", s)
 
 	httpServer := &http.Server{
@@ -139,6 +147,77 @@ func writeAtomic(path string, value any) error {
 	return nil
 }
 
+func (s *server) backupState() error {
+	data, err := os.ReadFile(s.stateFile)
+	if errors.Is(err, os.ErrNotExist) { return nil }
+	if err != nil { return err }
+	if err := os.MkdirAll(s.backupDir, 0o755); err != nil { return err }
+	name := "state-" + time.Now().Format("20060102-150405.000000000") + ".json"
+	if err := os.WriteFile(filepath.Join(s.backupDir, name), data, 0o600); err != nil { return err }
+	entries, _ := os.ReadDir(s.backupDir)
+	var names []string
+	for _, entry := range entries { if !entry.IsDir() && strings.HasPrefix(entry.Name(), "state-") && strings.HasSuffix(entry.Name(), ".json") { names = append(names, entry.Name()) } }
+	sort.Strings(names)
+	for len(names) > 10 { _ = os.Remove(filepath.Join(s.backupDir, names[0])); names = names[1:] }
+	return nil
+}
+
+func (s *server) currentState() (stateData, error) {
+	data, err := os.ReadFile(s.stateFile)
+	if errors.Is(err, os.ErrNotExist) { return stateData{Version:1, UserLinks:[]map[string]any{}, Overrides:map[string]map[string]any{}, Hidden:[]string{}}, nil }
+	if err != nil { return stateData{}, err }
+	var state stateData
+	if err := json.Unmarshal(data, &state); err != nil || !validState(state) { return stateData{}, errors.New("invalid state") }
+	return state, nil
+}
+
+func (s *server) handleBackups(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	if r.Method != http.MethodGet { writeError(w, http.StatusMethodNotAllowed, "不支持此请求方法"); return }
+	entries, err := os.ReadDir(s.backupDir)
+	if errors.Is(err, os.ErrNotExist) { writeJSON(w, http.StatusOK, map[string]any{"backups": []any{}}); return }
+	if err != nil { writeError(w, http.StatusInternalServerError, "无法读取备份"); return }
+	items := []map[string]any{}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "state-") || !strings.HasSuffix(entry.Name(), ".json") { continue }
+		info, err := entry.Info(); if err == nil { items = append(items, map[string]any{"name":entry.Name(), "time":info.ModTime(), "size":info.Size()}) }
+	}
+	sort.Slice(items, func(i,j int) bool { return items[i]["name"].(string) > items[j]["name"].(string) })
+	writeJSON(w, http.StatusOK, map[string]any{"backups":items})
+}
+
+func (s *server) handleRestore(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	if r.Method != http.MethodPost { writeError(w, http.StatusMethodNotAllowed, "不支持此请求方法"); return }
+	if !s.authorized(r) { writeError(w, http.StatusUnauthorized, "管理令牌不正确"); return }
+	var req struct{Name string `json:"name"`}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil || filepath.Base(req.Name) != req.Name || !strings.HasPrefix(req.Name,"state-") || !strings.HasSuffix(req.Name,".json") { writeError(w, http.StatusBadRequest, "备份名称无效"); return }
+	data, err := os.ReadFile(filepath.Join(s.backupDir, req.Name)); if err != nil { writeError(w, http.StatusNotFound, "备份不存在"); return }
+	var restored stateData
+	if err := json.Unmarshal(data, &restored); err != nil || !validState(restored) { writeError(w, http.StatusBadRequest, "备份格式错误"); return }
+	current, _ := s.currentState(); if err := s.backupState(); err != nil { writeError(w, http.StatusInternalServerError, "无法备份当前数据"); return }
+	restored.Revision = current.Revision + 1
+	if err := writeAtomic(s.stateFile, restored); err != nil { writeError(w, http.StatusInternalServerError, "无法恢复备份"); return }
+	writeJSON(w, http.StatusOK, restored)
+}
+
+func allowedIconHost(host string) bool {
+	switch strings.ToLower(host) { case "api.iowen.cn", "favicon.im", "icons.duckduckgo.com", "www.google.com": return true }
+	return false
+}
+
+func (s *server) handleIcon(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet { writeError(w, http.StatusMethodNotAllowed, "不支持此请求方法"); return }
+	target, err := url.Parse(r.URL.Query().Get("url")); if err != nil || target.Scheme != "https" || !allowedIconHost(target.Hostname()) { writeError(w, http.StatusBadRequest, "图标来源不受支持"); return }
+	client := &http.Client{Timeout:8*time.Second, CheckRedirect:func(req *http.Request, via []*http.Request) error { if len(via)>3 || !allowedIconHost(req.URL.Hostname()) { return errors.New("redirect rejected") }; return nil }}
+	resp, err := client.Get(target.String()); if err != nil { writeError(w, http.StatusBadGateway, "图标获取失败"); return }
+	defer resp.Body.Close(); if resp.StatusCode < 200 || resp.StatusCode >= 300 { writeError(w, http.StatusBadGateway, "图标获取失败"); return }
+	contentType := resp.Header.Get("Content-Type"); if !strings.HasPrefix(contentType, "image/") { writeError(w, http.StatusBadGateway, "返回内容不是图片"); return }
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 512<<10+1)); if err != nil || len(data) == 0 || len(data) > 512<<10 { writeError(w, http.StatusBadGateway, "图标数据无效或过大"); return }
+	w.Header().Set("Content-Type", contentType); w.Header().Set("Cache-Control", "public, max-age=86400"); _, _ = w.Write(data)
+}
+
 func (s *server) handleState(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
@@ -147,7 +226,7 @@ func (s *server) handleState(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		data, err := os.ReadFile(s.stateFile)
 		if errors.Is(err, os.ErrNotExist) {
-			writeJSON(w, http.StatusOK, stateData{Version: 1, UserLinks: []map[string]any{}, Overrides: map[string]map[string]any{}, Hidden: []string{}})
+			writeJSON(w, http.StatusOK, stateData{Version: 1, Revision: 0, UserLinks: []map[string]any{}, Overrides: map[string]map[string]any{}, Hidden: []string{}})
 			return
 		}
 		if err != nil {
@@ -175,11 +254,16 @@ func (s *server) handleState(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "网址数据格式错误")
 			return
 		}
+		current, err := s.currentState()
+		if err != nil { writeError(w, http.StatusInternalServerError, "无法读取当前网址数据"); return }
+		if state.Revision != current.Revision { writeError(w, http.StatusConflict, "数据已被其他设备更新，请重试"); return }
+		if err := s.backupState(); err != nil { writeError(w, http.StatusInternalServerError, "无法创建保存前备份"); return }
+		state.Revision++
 		if err := writeAtomic(s.stateFile, state); err != nil {
 			writeError(w, http.StatusInternalServerError, "无法保存网址数据")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+		writeJSON(w, http.StatusOK, state)
 	default:
 		w.Header().Set("Allow", "GET, PUT")
 		writeError(w, http.StatusMethodNotAllowed, "不支持此请求方法")
@@ -187,7 +271,7 @@ func (s *server) handleState(w http.ResponseWriter, r *http.Request) {
 }
 
 func validState(state stateData) bool {
-	if state.Version != 1 || state.UserLinks == nil || state.Overrides == nil || state.Hidden == nil {
+	if state.Version != 1 || state.Revision < 0 || state.UserLinks == nil || state.Overrides == nil || state.Hidden == nil {
 		return false
 	}
 	if len(state.UserLinks) > 5000 || len(state.Overrides) > 5000 || len(state.Hidden) > 5000 {

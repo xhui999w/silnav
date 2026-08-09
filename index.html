@@ -193,6 +193,8 @@
       <div class="manage-menu hidden" id="manageMenu">
         <button type="button" class="manage-item" id="importConfig">导入配置</button>
         <button type="button" class="manage-item" id="exportConfig">导出配置</button>
+        <button type="button" class="manage-item" id="repairIcons">修复缺失图标</button>
+        <button type="button" class="manage-item" id="restoreBackup">恢复上一版本</button>
       </div>
     </div>
   </header>
@@ -406,10 +408,12 @@
     function next(){
       if(i >= sources.length){ onFail(); return; }
       var source = sources[i++];
-      var img = new Image();
-      img.onload = function(){ onSuccess(source); };
-      img.onerror = next;
-      img.src = source;
+      fetch('/api/icon?url=' + encodeURIComponent(source), {cache:'no-store'}).then(function(response){
+        if(!response.ok) throw new Error('HTTP ' + response.status);
+        return response.blob();
+      }).then(function(blob){
+        compressIconFile(blob, onSuccess, next);
+      }).catch(next);
     }
     next();
   }
@@ -492,6 +496,7 @@
   function localState(){
     return {
       version:DATA_VERSION,
+      revision:0,
       userLinks:safeRead(STORAGE_KEYS.userLinks, [], validUserLinks),
       overrides:safeRead(STORAGE_KEYS.overrides, {}, validOverrides),
       hidden:safeRead(STORAGE_KEYS.hidden, [], validHidden)
@@ -501,7 +506,7 @@
     return state.userLinks.length || Object.keys(state.overrides).length || state.hidden.length;
   }
   function mergeStates(remote, local){
-    var merged = {version:DATA_VERSION, userLinks:remote.userLinks.slice(), overrides:{}, hidden:remote.hidden.slice()};
+    var merged = {version:DATA_VERSION, revision:Number(remote.revision)||0, userLinks:remote.userLinks.slice(), overrides:{}, hidden:remote.hidden.slice()};
     var userIndex = {};
     merged.userLinks.forEach(function(link, index){ userIndex[String(link.id)] = index; });
     local.userLinks.forEach(function(link){
@@ -536,10 +541,12 @@
       return response.json().catch(function(){ return {}; }).then(function(body){
         var error = new Error(body.error || ('HTTP ' + response.status)); error.status = response.status; throw error;
       });
-    }).then(function(){
+    }).then(function(saved){
+      if(saved && typeof saved.revision === 'number') sharedState.revision = saved.revision;
       if(migration) showToast('本机原有网址和图标已迁移到 NAS');
     }).catch(function(error){
       if(error.status === 401) safeRemove('silnav_admin_token');
+      if(error.status === 409){ showToast('其他设备刚刚更新了数据，请刷新页面后重试', 'error'); return; }
       showToast('NAS 数据保存失败：' + error.message, 'error');
     });
   }
@@ -850,7 +857,7 @@
     if(rl) rl.addEventListener('click', function(){
       if(confirm('确定清除本机对网址的所有修改/删除，恢复 sites.js 默认？')){
         safeRemove(STORAGE_KEYS.userLinks); safeRemove(STORAGE_KEYS.overrides); safeRemove(STORAGE_KEYS.hidden);
-        sharedState = {version:DATA_VERSION, userLinks:[], overrides:{}, hidden:[]};
+        sharedState = {version:DATA_VERSION, revision:(sharedState && sharedState.revision)||0, userLinks:[], overrides:{}, hidden:[]};
         saveSharedState(false);
         render(); showToast('已恢复默认配置');
       }
@@ -1136,7 +1143,7 @@
       localStorage.setItem(STORAGE_KEYS.hidden, JSON.stringify(data.hidden));
       localStorage.setItem(STORAGE_KEYS.theme, data.theme);
       localStorage.setItem(STORAGE_KEYS.version, String(DATA_VERSION));
-      sharedState = {version:DATA_VERSION, userLinks:data.userLinks, overrides:data.overrides, hidden:data.hidden};
+      sharedState = {version:DATA_VERSION, revision:(sharedState && sharedState.revision)||0, userLinks:data.userLinks, overrides:data.overrides, hidden:data.hidden};
       saveSharedState(false);
     } catch(e){
       keys.forEach(function(key){
@@ -1162,6 +1169,43 @@
     showToast('已切换为' + themeNames[currentTheme] + '主题');
   });
   manageMenu.addEventListener('click', function(e){ e.stopPropagation(); });
+  document.getElementById('restoreBackup').addEventListener('click', function(){
+    closeManageMenu();
+    fetch('/api/backups', {cache:'no-store'}).then(function(response){ if(!response.ok) throw new Error('HTTP '+response.status); return response.json(); }).then(function(data){
+      var backup = data.backups && data.backups[0];
+      if(!backup){ showToast('暂无可恢复的历史版本', 'error'); return; }
+      if(!confirm('确定恢复上一版本？当前数据会先自动备份。\n备份时间：' + new Date(backup.time).toLocaleString())) return;
+      function restore(token){
+        fetch('/api/restore', {method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+(token||'')}, body:JSON.stringify({name:backup.name})}).then(function(response){
+          if(response.ok) return response.json();
+          return response.json().catch(function(){return {};}).then(function(body){var e=new Error(body.error||('HTTP '+response.status));e.status=response.status;throw e;});
+        }).then(function(state){ sharedState=state; cacheSharedState(); render(); showToast('已恢复上一版本'); }).catch(function(error){ showToast('恢复失败：'+error.message,'error'); });
+      }
+      if(!stateAuthRequired) restore(''); else { var token=safeGetText('silnav_admin_token'); if(token) restore(token); else requestAdminToken(restore); }
+    }).catch(function(error){ showToast('无法读取历史备份：'+error.message,'error'); });
+  });
+  function fetchFaviconPromise(url){ return new Promise(function(resolve,reject){ fetchFaviconUrl(url,resolve,reject); }); }
+  document.getElementById('repairIcons').addEventListener('click', function(){
+    closeManageMenu();
+    var state=ensureSharedState(), tasks=[];
+    (cfg.nas||[]).forEach(function(link,i){ var id='nas:'+i, ov=state.overrides[id]||{}; if(!(ov.icon||link.icon) && (link.external||link.internal)) tasks.push({kind:'override',id:id,url:link.external||link.internal}); });
+    var scope=(mode==='internal')?cfg.internal:cfg.external;
+    (scope&&scope.categories||[]).forEach(function(cat){ (cat.links||[]).forEach(function(link,i){ var id='cfg:'+cat.name+':'+i,ov=state.overrides[id]||{}; if(!(ov.icon||link.icon)&&link.url) tasks.push({kind:'override',id:id,url:link.url}); }); });
+    state.userLinks.forEach(function(link,i){ if(!link.icon) tasks.push({kind:'user',index:i,url:link.external||link.url||link.internal}); });
+    if(!tasks.length){ showToast('没有缺失图标的网址'); return; }
+    if(!confirm('将只获取 '+tasks.length+' 个缺失图标，不会覆盖已有或自定义图标。确定继续吗？')) return;
+    var done=0, failed=0, cursor=0;
+    function worker(){
+      if(cursor>=tasks.length) return Promise.resolve();
+      var task=tasks[cursor++];
+      return fetchFaviconPromise(task.url).then(function(icon){
+        if(task.kind==='user') state.userLinks[task.index].icon=icon;
+        else { state.overrides[task.id]=Object.assign({},state.overrides[task.id]||{}, {icon:icon}); }
+        done++;
+      }).catch(function(){failed++;}).then(worker);
+    }
+    Promise.all([worker(),worker(),worker()]).then(function(){ cacheSharedState(); saveSharedState(false); render(); showToast('缺失图标修复完成：成功 '+done+'，失败 '+failed); });
+  });
   document.getElementById('exportConfig').addEventListener('click', function(){
     try {
       var json = JSON.stringify(currentExportData(), null, 2);
