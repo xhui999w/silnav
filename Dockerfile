@@ -10,7 +10,7 @@ RUN apk add --no-cache ca-certificates \
     && adduser -S -G silnav silnav
 WORKDIR /app
 COPY --from=build /silnav /usr/local/bin/silnav
-COPY index.html sites.js ./public/
+COPY index.html sites.js favicon.svg ./public/
 COPY config/sites.js ./public/config/sites.js
 RUN mkdir -p /data && chown -R silnav:silnav /data
 
