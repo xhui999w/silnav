@@ -6,8 +6,10 @@ on:
     paths:
       - index.html
       - sites.js
+      - favicon.svg
       - config/sites.js
       - Dockerfile
+      - docker-entrypoint.sh
       - go.mod
       - server/main.go
       - .dockerignore

@@ -651,6 +651,10 @@
   function isImgUrl(s){
     return typeof s === 'string' && (/^(https?:\/\/|data:image\/)/i.test(s));
   }
+  function safeUrl(u){
+    var s = (typeof u === 'string') ? u.trim() : '';
+    return (/^https?:\/\//i.test(s)) ? s : '';
+  }
   function findUserLink(id){
     var arr = loadUserLinks();
     for (var i=0;i<arr.length;i++){ if(arr[i].id === id) return arr[i]; }
@@ -664,8 +668,9 @@
   }
   var chipMenu = document.getElementById('chipMenu');
   function openDirect(url){
-    if(!url) return;
-    window.open(url, '_blank', 'noopener');
+    var safe = safeUrl(url);
+    if(!safe) return;
+    window.open(safe, '_blank', 'noopener');
   }
   function deleteItem(item){
     closeChipMenu();
@@ -712,7 +717,10 @@
   window.addEventListener('scroll', closeChipMenu, {passive:true});
   function createChip(item){
     var a = document.createElement('a');
-    a.href = item.url; a.target = '_blank'; a.rel = 'noopener'; a.className = 'chip';
+    var safeHref = safeUrl(item.url);
+    a.href = safeHref || '#';
+    a.target = safeHref ? '_blank' : '_self';
+    a.rel = 'noopener'; a.className = 'chip';
     a.dataset.orderKey = item.orderKey;
     a.draggable = false;
     a.title = (item.name || item.url) + ' — ' + item.url;

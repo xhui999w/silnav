@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -38,6 +40,9 @@ type server struct {
 	configFiles []string
 	token       string
 	static      http.Handler
+	iconClient  *http.Client
+	iconSem     chan struct{}
+	mu          sync.Mutex
 }
 
 func main() {
@@ -56,8 +61,10 @@ func main() {
 			envOr("SILNAV_CONFIG_FILE", "/config/sites.js"),
 			"/usr/share/nginx/html/config/sites.js",
 		},
-		token:  os.Getenv("SILNAV_ADMIN_TOKEN"),
-		static: http.FileServer(http.Dir(publicDir)),
+		token:      os.Getenv("SILNAV_ADMIN_TOKEN"),
+		static:     http.FileServer(http.Dir(publicDir)),
+		iconClient: newIconClient(),
+		iconSem:    make(chan struct{}, 4),
 	}
 
 	mux := http.NewServeMux()
@@ -70,7 +77,7 @@ func main() {
 	mux.Handle("/", s)
 
 	httpServer := &http.Server{
-		Addr:              ":80",
+		Addr:              ":" + envOr("SILNAV_PORT", "80"),
 		Handler:           securityHeaders(mux),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
@@ -250,7 +257,13 @@ func (s *server) handleRestore(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "备份格式错误")
 		return
 	}
-	current, _ := s.currentState()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, err := s.currentState()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "无法读取当前网址数据")
+		return
+	}
 	if err := s.backupState(); err != nil {
 		writeError(w, http.StatusInternalServerError, "无法备份当前数据")
 		return
@@ -271,23 +284,113 @@ func allowedIconHost(host string) bool {
 	return false
 }
 
+func isBlockedIP(ip net.IP) bool {
+	if ip == nil {
+		return true
+	}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() ||
+		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+		ip.IsInterfaceLocalMulticast() || ip.IsMulticast() {
+		return true
+	}
+	if v4 := ip.To4(); v4 != nil {
+		if v4[0] == 100 && v4[1] >= 64 && v4[1] <= 127 { // 100.64.0.0/10 CGNAT
+			return true
+		}
+		if v4[0] == 192 && v4[1] == 0 && v4[2] == 0 { // 192.0.0.0/24
+			return true
+		}
+		if v4[0] == 198 && (v4[1] == 18 || v4[1] == 19) { // 198.18.0.0/15
+			return true
+		}
+		return false
+	}
+	if len(ip) == net.IPv6len {
+		if ip[0] == 0x20 && ip[1] == 0x02 { // 2002::/16 6to4
+			return true
+		}
+		if ip[0] == 0x20 && ip[1] == 0x01 && ip[2] == 0x00 && ip[3] == 0x00 { // 2001::/32 Teredo
+			return true
+		}
+	}
+	return false
+}
+
 func safeIconURL(target *url.URL) bool {
 	if target == nil || (target.Scheme != "https" && target.Scheme != "http") || target.Hostname() == "" {
+		return false
+	}
+	if target.User != nil {
 		return false
 	}
 	if allowedIconHost(target.Hostname()) {
 		return true
 	}
-	ips, err := net.LookupIP(target.Hostname())
+	if ip := net.ParseIP(target.Hostname()); ip != nil {
+		return !isBlockedIP(ip)
+	}
+	ips, err := net.DefaultResolver.LookupIP(context.Background(), "ip", target.Hostname())
 	if err != nil || len(ips) == 0 {
 		return false
 	}
 	for _, ip := range ips {
-		if ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+		if isBlockedIP(ip) {
 			return false
 		}
 	}
 	return true
+}
+
+// guardedDialContext 在建立 TCP 连接前校验目标 IP，并直接使用该 IP 拨号。
+// 校验与拨号共用同一次解析结果，避免 DNS Rebinding 绕过地址检查。
+func guardedDialContext(dialer *net.Dialer) func(context.Context, string, string) (net.Conn, error) {
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, err
+		}
+		if !allowedIconHost(host) {
+			if ip := net.ParseIP(host); ip != nil {
+				if isBlockedIP(ip) {
+					return nil, errors.New("blocked address")
+				}
+			} else {
+				ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
+				if err != nil || len(ips) == 0 {
+					return nil, errors.New("cannot resolve host")
+				}
+				for _, ip := range ips {
+					if isBlockedIP(ip) {
+						return nil, errors.New("blocked address")
+					}
+				}
+				host = ips[0].String()
+			}
+		}
+		return dialer.DialContext(ctx, network, net.JoinHostPort(host, port))
+	}
+}
+
+func newIconClient() *http.Client {
+	dialer := &net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}
+	transport := &http.Transport{
+		Proxy:                 nil,
+		DialContext:           guardedDialContext(dialer),
+		TLSHandshakeTimeout:   5 * time.Second,
+		ResponseHeaderTimeout: 5 * time.Second,
+		MaxIdleConns:          16,
+		DisableKeepAlives:     true,
+	}
+	return &http.Client{
+		Timeout:   8 * time.Second,
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) > 3 || !safeIconURL(req.URL) {
+				return errors.New("redirect rejected")
+			}
+			return nil
+		},
+	}
 }
 
 func (s *server) handleIcon(w http.ResponseWriter, r *http.Request) {
@@ -300,13 +403,14 @@ func (s *server) handleIcon(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "图标来源不受支持")
 		return
 	}
-	client := &http.Client{Timeout: 8 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
-		if len(via) > 3 || !safeIconURL(req.URL) {
-			return errors.New("redirect rejected")
-		}
-		return nil
-	}}
-	resp, err := client.Get(target.String())
+	select {
+	case s.iconSem <- struct{}{}:
+		defer func() { <-s.iconSem }()
+	default:
+		writeError(w, http.StatusTooManyRequests, "图标请求过于频繁，请稍后重试")
+		return
+	}
+	resp, err := s.iconClient.Get(target.String())
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "图标获取失败")
 		return
@@ -367,6 +471,8 @@ func (s *server) handleState(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "网址数据格式错误")
 			return
 		}
+		s.mu.Lock()
+		defer s.mu.Unlock()
 		current, err := s.currentState()
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "无法读取当前网址数据")
@@ -392,6 +498,52 @@ func (s *server) handleState(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+const (
+	maxURLFieldLen   = 2048
+	maxOtherFieldLen = 256 << 10
+)
+
+func isURLField(key string) bool {
+	switch key {
+	case "url", "internal", "external":
+		return true
+	}
+	return false
+}
+
+func validLinkURL(value string) bool {
+	if value == "" {
+		return true
+	}
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return false
+	}
+	return parsed.Scheme == "http" || parsed.Scheme == "https"
+}
+
+func validLinkFields(fields map[string]any) bool {
+	for key, value := range fields {
+		if key == "" || len(key) > 64 {
+			return false
+		}
+		text, ok := value.(string)
+		if !ok {
+			continue
+		}
+		if isURLField(key) {
+			if len(text) > maxURLFieldLen || !validLinkURL(text) {
+				return false
+			}
+			continue
+		}
+		if len(text) > maxOtherFieldLen {
+			return false
+		}
+	}
+	return true
+}
+
 func validState(state stateData) bool {
 	if state.Version != 1 || state.Revision < 0 || state.UserLinks == nil || state.Overrides == nil || state.Hidden == nil {
 		return false
@@ -400,12 +552,12 @@ func validState(state stateData) bool {
 		return false
 	}
 	for _, link := range state.UserLinks {
-		if len(link) > 12 {
+		if len(link) > 12 || !validLinkFields(link) {
 			return false
 		}
 	}
 	for id, override := range state.Overrides {
-		if id == "" || len(id) > 1000 || len(override) > 12 {
+		if id == "" || len(id) > 1000 || len(override) > 12 || !validLinkFields(override) {
 			return false
 		}
 	}
@@ -420,9 +572,9 @@ func validState(state stateData) bool {
 func (s *server) handleOrder(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Silnav-Auth-Required", fmt.Sprintf("%t", s.token != ""))
 	switch r.Method {
 	case http.MethodGet:
-		w.Header().Set("X-Silnav-Auth-Required", fmt.Sprintf("%t", s.token != ""))
 		data, err := os.ReadFile(s.dataFile)
 		if errors.Is(err, os.ErrNotExist) {
 			writeJSON(w, http.StatusOK, orderData{Version: 1, Modes: map[string]map[string][]string{}})

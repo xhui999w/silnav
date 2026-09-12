@@ -20,7 +20,7 @@ services:
     restart: unless-stopped
     ports:
       - "8080:80"
-    # 可选：取消注释后，首次保存排序需要输入令牌
+    # 强烈建议开启：设置后，写入网址与排序需要携带令牌
     # environment:
     #   SILNAV_ADMIN_TOKEN: "请改成自己的长随机令牌"
     volumes:
@@ -41,6 +41,26 @@ docker compose up -d
 为兼容旧版 Compose，镜像也会自动读取旧路径 `/usr/share/nginx/html/config/sites.js`；建议仍使用上面的新路径，以同时持久化拖动排序。
 
 如果不需要预置配置，可删除 `volumes` 两行，启动后直接在页面中添加网址。
+
+### 运行身份与数据目录权限
+
+容器以非 root 用户 `silnav`（UID/GID 均为 1000）运行。启动脚本会在拉起服务前把数据目录的属主调整为该用户，通常无需手工处理。
+
+若挂载目录所在的文件系统不允许改属主（个别网络挂载），启动日志会出现 `cannot chown /data, saving may fail` 警告，此时保存网址会失败。可在宿主机上手工授权后重启容器：
+
+```bash
+chown -R 1000:1000 data
+```
+
+### 环境变量
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `SILNAV_ADMIN_TOKEN` | 空 | 设置后写入网址与排序需要携带 `Authorization: Bearer <令牌>`。**留空时任何能访问该页面的人都可以修改你的网址**，仅在完全可信的网络中使用 |
+| `SILNAV_PORT` | `80` | 容器内监听端口。若运行环境不允许绑定 80，可改为 `8080`，并同步调整 `ports` 映射 |
+| `SILNAV_DATA_DIR` | `/data` | 数据与备份目录 |
+| `SILNAV_PUBLIC_DIR` | `/app/public` | 静态文件目录 |
+| `SILNAV_CONFIG_FILE` | `/config/sites.js` | 私人配置路径 |
 
 ## 主要功能
 

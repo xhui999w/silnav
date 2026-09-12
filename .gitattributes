@@ -1,0 +1,11 @@
+# 换行符策略
+#
+# shell 脚本与 Dockerfile 强制使用 LF。
+# 在 Windows 上克隆（core.autocrlf=true）或打包时，这些文件会带上 CR，
+# 导致容器启动失败：shebang 变成 "#!/bin/sh\r"，内核去找不存在的 /bin/sh\r，
+# 报 exec /usr/local/bin/docker-entrypoint.sh: no such file or directory。
+#
+# 2026-09-13：绿联 NAS 上的隔离构建实测复现过该故障，故固化此规则。
+docker-entrypoint.sh  text eol=lf
+*.sh                  text eol=lf
+Dockerfile            text eol=lf
