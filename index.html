@@ -464,7 +464,8 @@
     userLinks: 'nav_user_links',
     overrides: 'nav_overrides',
     hidden: 'nav_hidden',
-    theme: 'nav_theme'
+    theme: 'nav_theme',
+    remoteMigrated: 'nav_remote_migrated_v1'
   };
   var storageWarningShown = false;
   var toastTimer = null;
@@ -582,7 +583,10 @@
       });
     }).then(function(saved){
       if(saved && typeof saved.revision === 'number') sharedState.revision = saved.revision;
-      if(migration) showToast('本机原有网址和图标已迁移到 NAS');
+      if(migration){
+        safeSetText(STORAGE_KEYS.remoteMigrated, '1');
+        showToast('本机原有网址和图标已迁移到 NAS');
+      }
     }).catch(function(error){
       if(error.status === 401) safeRemove('silnav_admin_token');
       if(error.status === 409){ showToast('其他设备刚刚更新了数据，请刷新页面后重试', 'error'); return; }
@@ -608,10 +612,12 @@
       if(!data || data.version !== DATA_VERSION || !validUserLinks(data.userLinks) || !validOverrides(data.overrides) || !validHidden(data.hidden)){
         throw new Error('数据格式错误');
       }
-      sharedState = mergeStates(data, existing);
-      var needsMigration = JSON.stringify(sharedState) !== JSON.stringify(data);
+      var remoteIsInitialized = Number(data.revision) > 0 || !!stateHasChanges(data);
+      var shouldMigrateLegacyLocal = !remoteIsInitialized && !safeGetText(STORAGE_KEYS.remoteMigrated) && !!stateHasChanges(existing);
+      sharedState = shouldMigrateLegacyLocal ? mergeStates(data, existing) : data;
       cacheSharedState();
-      if(needsMigration) saveSharedState(true);
+      if(shouldMigrateLegacyLocal) saveSharedState(true);
+      else safeSetText(STORAGE_KEYS.remoteMigrated, '1');
       render();
     }).catch(function(error){
       sharedState = existing;
